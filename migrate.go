@@ -13,17 +13,26 @@ import (
 	"strconv"
 	"strings"
 
+	// PostgreSQL driver
 	_ "github.com/lib/pq"
+
 	"github.com/sbowman/glog"
 )
 
+// Direction is the direction to migrate
 type Direction string
 
 const (
+	// Latest migrates to the latest migration.
 	Latest int = -1
 
-	Up   Direction = "up"
+	// Up direction.
+	Up Direction = "up"
+
+	// Down direction.
 	Down Direction = "down"
+
+	// None direction.
 	None Direction = "none"
 )
 
@@ -76,7 +85,7 @@ func Migrate(db *sql.DB, directory string, version int) error {
 		return err
 	}
 
-	direction := Moving(directory, version)
+	direction := Moving(db, version)
 	migrations, err := Available(directory, direction)
 	if err != nil {
 		return err
@@ -158,10 +167,10 @@ func LatestRevision(directory string) int {
 }
 
 // Revision extracts the revision number from a migration filename.
-func Revision(path string) (int, error) {
-	segments := strings.SplitN(Filename(path), "-", 2)
+func Revision(filename string) (int, error) {
+	segments := strings.SplitN(Filename(filename), "-", 2)
 	if len(segments) == 1 {
-		return 0, fmt.Errorf("Invalid migration filename: %s", path)
+		return 0, fmt.Errorf("Invalid migration filename: %s", filename)
 	}
 
 	v, err := strconv.Atoi(segments[0])
@@ -179,12 +188,27 @@ func Filename(path string) string {
 }
 
 // Moving determines the direction we're moving to reach the version.
-func Moving(directory string, version int) Direction {
+func Moving(db *sql.DB, version int) Direction {
 	if version == Latest {
 		return Up
 	}
 
-	revision := LatestRevision(directory)
+	latest, err := LatestMigration(db)
+	if err != nil {
+		glog.Errorf("Unable to get latest migration: %s", err)
+		return None
+	}
+
+	if latest == "" {
+		return Up
+	}
+
+	revision, err := Revision(latest)
+	if err != nil {
+		glog.Errorf("Invalid result from revision: %s", err)
+		return None
+	}
+
 	if revision < version {
 		return Up
 	} else if revision > version {
@@ -194,7 +218,7 @@ func Moving(directory string, version int) Direction {
 	return None
 }
 
-// Should run decides if the migration should be applied or removed, based on
+// ShouldRun decides if the migration should be applied or removed, based on
 // the direction and desired version to reach.
 func ShouldRun(tx *sql.Tx, migration string, direction Direction, desiredVersion int) bool {
 	version, err := Revision(migration)
@@ -212,18 +236,19 @@ func ShouldRun(tx *sql.Tx, migration string, direction Direction, desiredVersion
 	return false
 }
 
-// Return true if the migration must roll up to reach the desired version.
+// IsUp returns true if the migration must roll up to reach the desired version.
 func IsUp(version int, desired int) bool {
-	return desired == Latest || version < desired
+	return desired == Latest || version <= desired
 }
 
-// Return true if the migration must rollback to reach the desired version.
+// IsDown returns true if the migration must rollback to reach the desired
+// version.
 func IsDown(version int, desired int) bool {
 	return version > desired
 }
 
-// Read the SQL file and apply it to the database.  If successful, mark the
-// migration as completed.
+// Run reads the SQL file and applies it to the database.  If successful, mark
+// the migration as completed.
 func Run(tx *sql.Tx, path string, direction Direction) error {
 	doc, err := ReadSQL(path, direction)
 	if err != nil {
@@ -242,7 +267,7 @@ func Run(tx *sql.Tx, path string, direction Direction) error {
 	return nil
 }
 
-// Read the migration and filter for the up or down SQL commands.
+// ReadSQL reads the migration and filters for the up or down SQL commands.
 func ReadSQL(path string, direction Direction) (string, error) {
 	f, err := os.Open(path)
 	if err != nil {
@@ -265,14 +290,41 @@ func ReadSQL(path string, direction Direction) (string, error) {
 	return sql.String(), nil
 }
 
-// Has the migration been applied to the database, i.e. is it in the
-// schema_migrations table?
+// LatestMigration returns the name of the latest migration run against the
+// database.
+func LatestMigration(db *sql.DB) (string, error) {
+	var latest, migration string
+
+	rows, err := db.Query("select migration from schema_migrations")
+	if err != nil {
+		return "", err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		if err := rows.Scan(&migration); err != nil {
+			return "", err
+		}
+
+		m, _ := Revision(migration)
+		l, _ := Revision(latest)
+
+		if m > l {
+			latest = migration
+		}
+	}
+
+	return latest, nil
+}
+
+// IsMigrated checks the migration has been applied to the database, i.e. is it
+// in the schema_migrations table?
 func IsMigrated(tx *sql.Tx, migration string) bool {
 	row := tx.QueryRow("select migration from schema_migrations where migration = $1 limit 1", Filename(migration))
 	return row.Scan() != sql.ErrNoRows
 }
 
-// Add or remove the migration record from schema_migrations.
+// Migrated adds or removes the migration record from schema_migrations.
 func Migrated(tx *sql.Tx, path string, direction Direction) error {
 	var err error
 	filename := Filename(path)
@@ -286,8 +338,8 @@ func Migrated(tx *sql.Tx, path string, direction Direction) error {
 	return err
 }
 
-// Create the schema_migrations table in the database if it doesn't already
-// exist.
+// CreateSchemaMigrations creates the schema_migrations table in the database
+// if it doesn't already exist.
 func CreateSchemaMigrations(db *sql.DB) error {
 	tx, err := db.Begin()
 	if err != nil {
@@ -309,7 +361,8 @@ func CreateSchemaMigrations(db *sql.DB) error {
 	return nil
 }
 
-// Returns true if there is no schema_migrations table in the database.
+// MissingSchemaMigrations returns true if there is no schema_migrations table
+// in the database.
 func MissingSchemaMigrations(tx *sql.Tx) bool {
 	row := tx.QueryRow("select not(exists(select 1 from pg_catalog.pg_class c " +
 		"join pg_catalog.pg_namespace n " +
