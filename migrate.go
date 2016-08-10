@@ -320,7 +320,7 @@ func LatestMigration(db *sql.DB) (string, error) {
 // IsMigrated checks the migration has been applied to the database, i.e. is it
 // in the schema_migrations table?
 func IsMigrated(tx *sql.Tx, migration string) bool {
-	row := tx.QueryRow("select migration from schema_migrations where migration = $1 limit 1", Filename(migration))
+	row := tx.QueryRow("select migration from schema_migrations where migration = $1 limit 1 for update", Filename(migration))
 	return row.Scan() != sql.ErrNoRows
 }
 
