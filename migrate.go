@@ -15,8 +15,6 @@ import (
 
 	// PostgreSQL driver
 	_ "github.com/lib/pq"
-
-	"github.com/sbowman/glog"
 )
 
 // Direction is the direction to migrate
@@ -37,15 +35,25 @@ const (
 )
 
 var (
-	//log   = logging.MustGetLogger("migrations")
-	dirRe = regexp.MustCompile("^#\\s*\\-{3}\\s*!(.*)\\s*(?:.*)?$")
+	// ErrNameRequired returned if the user failed to supply a name for the
+	// migration.
+	ErrNameRequired = errors.New("name required")
+
+	// Output defaults to writing to disk.
+	IO Reader
+
+	dirRe = regexp.MustCompile("^#\\s*-{3}\\s*!(.*)\\s*(?:.*)?$")
 )
+
+func init() {
+	IO = new(DiskReader)
+}
 
 // Create a new migration from the template.
 func Create(directory string, name string) error {
 	trimmed := strings.TrimSpace(name)
 	if trimmed == "" {
-		return errors.New("Name required.")
+		return ErrNameRequired
 	}
 
 	if err := os.MkdirAll(directory, 0755); err != nil {
@@ -55,11 +63,12 @@ func Create(directory string, name string) error {
 	r := LatestRevision(directory) + 1
 	fullname := fmt.Sprintf("%d-%s.sql", r, trimmed)
 	path := fmt.Sprintf("%s%c%s", directory, os.PathSeparator, fullname)
+
 	if err := ioutil.WriteFile(path, []byte("# --- !Up\n\n# --- !Down\n\n"), 0644); err != nil {
 		return err
 	}
 
-	println("Created new migration " + path)
+	Log.Infof("Created new migration %s", path)
 	return nil
 }
 
@@ -100,7 +109,7 @@ func Migrate(db *sql.DB, directory string, version int) error {
 		}
 
 		if ShouldRun(tx, path, direction, version) {
-			glog.Infof("Running migration %s %s", path, direction)
+			Log.Infof("Running migration %s %s", path, direction)
 			if err = Run(tx, path, direction); err != nil {
 				tx.Rollback()
 				return err
@@ -118,15 +127,15 @@ func Migrate(db *sql.DB, directory string, version int) error {
 // Available returns the list of SQL migration paths in order.  If direction is
 // Down, returns the migrations in reverse order (migrating down).
 func Available(directory string, direction Direction) ([]string, error) {
-	files, err := ioutil.ReadDir(directory)
+	files, err := IO.Files(directory)
 	if err != nil {
-		return nil, fmt.Errorf("Invalid migrations directory, %s: %s", directory, err.Error())
+		return nil, fmt.Errorf("invalid migrations directory, %s: %s", directory, err.Error())
 	}
 
 	var filenames []string
-	for _, info := range files {
-		if strings.HasSuffix(info.Name(), ".sql") {
-			filenames = append(filenames, info.Name())
+	for _, name := range files {
+		if strings.HasSuffix(name, ".sql") {
+			filenames = append(filenames, name)
 		}
 	}
 
@@ -144,7 +153,7 @@ func Available(directory string, direction Direction) ([]string, error) {
 func LatestRevision(directory string) int {
 	migrations, err := Available(directory, Down)
 	if err != nil {
-		println(err.Error())
+		Log.Infof(err.Error())
 		return 0
 	}
 
@@ -156,7 +165,7 @@ func LatestRevision(directory string) int {
 	for _, filename := range migrations {
 		rev, err := Revision(filename)
 		if err != nil {
-			glog.Warningf("Invalid migration: %s", filename)
+			Log.Infof("Invalid migration %s: %s", filename, err)
 			continue
 		}
 
@@ -170,7 +179,7 @@ func LatestRevision(directory string) int {
 func Revision(filename string) (int, error) {
 	segments := strings.SplitN(Filename(filename), "-", 2)
 	if len(segments) == 1 {
-		return 0, fmt.Errorf("Invalid migration filename: %s", filename)
+		return 0, fmt.Errorf("invalid migration filename: %s", filename)
 	}
 
 	v, err := strconv.Atoi(segments[0])
@@ -195,7 +204,7 @@ func Moving(db *sql.DB, version int) Direction {
 
 	latest, err := LatestMigration(db)
 	if err != nil {
-		glog.Errorf("Unable to get latest migration: %s", err)
+		Log.Infof("Unable to get the latest migration: %s", err)
 		return None
 	}
 
@@ -205,7 +214,7 @@ func Moving(db *sql.DB, version int) Direction {
 
 	revision, err := Revision(latest)
 	if err != nil {
-		glog.Errorf("Invalid result from revision: %s", err)
+		Log.Infof("Invalid result from revision: %s", err)
 		return None
 	}
 
@@ -223,7 +232,7 @@ func Moving(db *sql.DB, version int) Direction {
 func ShouldRun(tx *sql.Tx, migration string, direction Direction, desiredVersion int) bool {
 	version, err := Revision(migration)
 	if err != nil {
-		glog.Warningf("Unable to determine the revision of %s", migration)
+		Log.Debugf("Unable to determin the revision of %s", migration)
 		return false
 	}
 
@@ -269,12 +278,12 @@ func Run(tx *sql.Tx, path string, direction Direction) error {
 
 // ReadSQL reads the migration and filters for the up or down SQL commands.
 func ReadSQL(path string, direction Direction) (string, error) {
-	f, err := os.Open(path)
+	f, err := IO.Read(path)
 	if err != nil {
-		return "", err
+		return "", nil
 	}
 
-	sql := new(bytes.Buffer)
+	sqldoc := new(bytes.Buffer)
 	parsing := false
 	s := bufio.NewScanner(f)
 	for s.Scan() {
@@ -282,12 +291,12 @@ func ReadSQL(path string, direction Direction) (string, error) {
 		if len(found) == 2 {
 			parsing = Direction(strings.ToLower(found[1])) == direction
 		} else if parsing {
-			sql.Write(s.Bytes())
-			sql.WriteRune('\n')
+			sqldoc.Write(s.Bytes())
+			sqldoc.WriteRune('\n')
 		}
 	}
 
-	return sql.String(), nil
+	return sqldoc.String(), nil
 }
 
 // LatestMigration returns the name of the latest migration run against the
@@ -347,7 +356,7 @@ func CreateSchemaMigrations(db *sql.DB) error {
 	}
 
 	if MissingSchemaMigrations(tx) {
-		glog.Info("Creating schema_migrations table in database.")
+		Log.Infof("Creating schema_migrations table in the database")
 		if _, err := tx.Exec("create table schema_migrations(migration varchar(1024) not null primary key)"); err != nil {
 			tx.Rollback()
 			return err
