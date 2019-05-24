@@ -251,8 +251,15 @@ All other commands function in the same way as the local file versions, except
 that you must supply a `--bucket` value:
 
     $ ./myapp db migrate --bucket="myapp-migrations" 
-    
-Or you can run your migrations from within your app when it starts up:
+
+The supplied S3-based commands default to region `us-west-2`.  If your bucket
+isn't in this region, supply a `--region=<name>` value for any command, e.g.
+`--region=us-west-1`.
+
+If you do not supply a bucket to the S3-based commands, the migrations package
+applies the local migration files.  This can be useful for local development.
+ 
+Additionally, you can run your migrations from within your app when it starts up:
 
     if err := migrations.Migrate(dbConn, "my-bucket-name", revisionNum); err != nil {
         return err
