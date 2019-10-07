@@ -24,7 +24,7 @@ migrations package.
 ### Create an Empty Migration File
 
 The migrations package can create empty migration files with the "up" and "down"
-sections inserted for you (see below).  
+sections inserted for you (see below).
 
     migrations.Create("/path/to/migrations", "migration name")
     
@@ -174,10 +174,10 @@ for whatever reason, it's easier to clean up.
 ## Remote S3 Migrations (2.0)
 
 Migrations package version 2.0 adds support for "remote" migrations from the
-Amazon AWS S3.  This allows you to upload your migrations to an S3 bucket, and 
-have your application apply the modifications from the S3 bucket instead of a 
-local disk.  This makes it easier to deploy something like AWS Lambda 
-serverless compute programs.
+Amazon AWS S3.  This allows you to upload your migrations to an S3 bucket, and
+have your application apply the modifications from the S3 bucket instead of a
+local disk.  This makes it easier to deploy something like AWS Lambda serverless
+compute programs.
 
 Currently remote migrations only support AWS S3.  Additional remote storage
 systems may be supported in the future.
@@ -197,22 +197,57 @@ for more details.
 
 ### Enabling Remote Migrations
 
-TODO
+To configure migrations to work with S3, use the migrations package like normal,
+but call `remote.InitS3`.  If you're using spf13/cobra, you might put it in a
+PersistentPreRun function:
+
+    rootCmd = &cobra.Command{
+        PersistentPreRun: func(cmd *cobra.Command, args []string) {
+            remote.InitS3(viper.GetString("s3.region"))
+        },
+    // ...
 
 ### Pushing Migrations
 
-TODO 
+You may copy the SQL migrations to an S3 bucket manually, or use the S3 push
+function:
+
+    if err := remote.PushS3(viper.GetString("migrations),
+            viper.GetString("region"), viper.GetString("bucket")); err != nil {
+        fmt.Fprintf(os.Stderr, "Failed to push migrations to S3: %s\n", err)
+        os.Exit(1)
+    }
+
+The default "db create" command creates migrations in a local directory, in
+expectation you'll use a "db push" command based on the above to push the
+migrations to S3.
 
 ### Applying Remote Migrations
 
-TODO
+After the InitS3 call, you can run the remote migrations the same way you run
+standard, disk-based migrations, but pass in the bucket name instead of a
+migrations directory:
+
+    conn, err := sql.Open("postgres", "postgres://....")
+    if err != nil {
+        return err
+    }
+
+    if err := migrations.Migrate(conn, viper.GetString("bucket"),
+            viper.GetInt("revision")); err != nil {
+        fmt.Fprintf(os.Stderr, "Failed to migrate: %s\n", err)
+        os.Exit(1)
+    }
+
+See the remote/cmd package for examples (or feel free to use them in your own
+spf13/cobra and spf13/viper applications).
 
 ### Cobra/Viper Support
 
 Similar to the Cobra/Viper support describe above for migration commands against
 local files, a set of remote S3-compatible commands exist that may be integrated
-into your application.  These work nearly identially to the local versions, 
-with the addition of some S3 settings.
+into your application.  These work nearly identially to the local versions, with
+the addition of some S3 settings.
 
 To add the remote Cobra commands to your app, use something like the following:
 
@@ -225,9 +260,9 @@ To add the remote Cobra commands to your app, use something like the following:
     }
   
 If you do this, you don't have to mess with any of the main `migrations` or
-`migrations/remote` packages.  You'll automatically get a `db create` and a 
-`db migrate` command, like the local commands, but you'll also get a third
-command, `db push`, described below.
+`migrations/remote` packages.  You'll automatically get a `db create` and a `db
+migrate` command, like the local commands, but you'll also get a third command,
+`db push`, described below.
 
 The following settings are supported with the S3 remote Cobra commands:
 
@@ -238,13 +273,13 @@ The following settings are supported with the S3 remote Cobra commands:
 * `region` - the AWS region the bucket is in; defaults to "us-west-2"
 * `bucket` - the name of the bucket holding the migration files
 
-You should copy your migrations directly into the bucket; do not put them in
-a subdirectory.  The `db push` command will copy any new or updated files to
-the S3 bucket for you:
+You should copy your migrations directly into the bucket; do not put them in a
+subdirectory.  The `db push` command will copy any new or updated files to the
+S3 bucket for you:
 
     $ ./myapp db push --bucket="myapo-migrations"
 
-You may put other files or directories in your bucket.  As long as they don't 
+You may put other files or directories in your bucket.  As long as they don't
 end in `.sql`, the migrations will ignore any files or folders.
 
 All other commands function in the same way as the local file versions, except
@@ -266,7 +301,5 @@ Additionally, you can run your migrations from within your app when it starts up
     }
     
 Note that this is exactly the same as running on the local file system, except
-the migration path is assumed to be the bucket name, "my-bucket-name".     
-
-
+the migration path is assumed to be the bucket name, "my-bucket-name".
    
