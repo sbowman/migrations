@@ -171,9 +171,9 @@ reason to keep each migration modification small and targeted to a specific
 change, and not put everything in one revision file:  if the migration fails
 for whatever reason, it's easier to clean up.
 
-## Remote S3 Migrations (2.0)
+## Remote S3 Migrations (1.1)
 
-Migrations package version 2.0 adds support for "remote" migrations from the
+Migrations package version 1.1 adds support for "remote" migrations from the
 Amazon AWS S3.  This allows you to upload your migrations to an S3 bucket, and
 have your application apply the modifications from the S3 bucket instead of a
 local disk.  This makes it easier to deploy something like AWS Lambda serverless
