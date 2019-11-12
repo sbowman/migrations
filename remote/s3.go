@@ -16,7 +16,7 @@ import (
 	"github.com/aws/aws-sdk-go/service/s3"
 	"github.com/aws/aws-sdk-go/service/s3/s3manager"
 
-	"github.com/sbowman/migrations"
+	"github.com/sbowman/migrations/v2"
 )
 
 var (

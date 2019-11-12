@@ -35,15 +35,15 @@ func init() {
 	dbCmd.PersistentFlags().String(Bucket, "", "push and run migrations in this S3 bucket; leave blank to run local migrations")
 	dbCmd.PersistentFlags().String(Region, "us-west-1", "the AWS region in which the bucket is located")
 
-	viper.BindPFlag(Migrations, dbCmd.PersistentFlags().Lookup(Migrations))
-	viper.BindPFlag(Driver, dbCmd.PersistentFlags().Lookup(Driver))
-	viper.BindPFlag(Bucket, dbCmd.PersistentFlags().Lookup(Bucket))
-	viper.BindPFlag(Region, dbCmd.PersistentFlags().Lookup(Region))
+	_ = viper.BindPFlag(Migrations, dbCmd.PersistentFlags().Lookup(Migrations))
+	_ = viper.BindPFlag(Driver, dbCmd.PersistentFlags().Lookup(Driver))
+	_ = viper.BindPFlag(Bucket, dbCmd.PersistentFlags().Lookup(Bucket))
+	_ = viper.BindPFlag(Region, dbCmd.PersistentFlags().Lookup(Region))
 
-	viper.BindEnv(Migrations, "MIGRATIONS")
-	viper.BindEnv(Driver, "DRIVER")
-	viper.BindEnv(Bucket, "BUCKET")
-	viper.BindEnv(Region, "REGION")
+	_ = viper.BindEnv(Migrations, "MIGRATIONS")
+	_ = viper.BindEnv(Driver, "DRIVER")
+	_ = viper.BindEnv(Bucket, "BUCKET")
+	_ = viper.BindEnv(Region, "REGION")
 }
 
 // AddRemoteTo applies the remote migration database commands under a "db"

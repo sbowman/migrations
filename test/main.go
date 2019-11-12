@@ -7,8 +7,8 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
-	local "github.com/sbowman/migrations/cmd"
-	remote "github.com/sbowman/migrations/remote/cmd"
+	local "github.com/sbowman/migrations/v2/cmd"
+	remote "github.com/sbowman/migrations/v2/remote/cmd"
 
 	_ "github.com/lib/pq"
 )

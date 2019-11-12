@@ -4,9 +4,9 @@ import (
 	"database/sql"
 	"os"
 
-	"github.com/sbowman/migrations/remote"
+	"github.com/sbowman/migrations/v2/remote"
 
-	"github.com/sbowman/migrations"
+	"github.com/sbowman/migrations/v2"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
