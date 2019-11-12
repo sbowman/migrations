@@ -1,4 +1,4 @@
-module github.com/sbowman/migrations/v2
+module github.com/sbowman/migrations
 
 go 1.13
 
