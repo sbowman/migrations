@@ -3,9 +3,10 @@ package cmd
 import (
 	"os"
 
-	"github.com/sbowman/migrations/v2"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
+
+	"github.com/sbowman/migrations/v2"
 )
 
 // Create a migration file in the local directory.

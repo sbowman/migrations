@@ -26,11 +26,11 @@ func init() {
 	dbCmd.PersistentFlags().String(Migrations, "./sql", "path to database migration (*.sql) files")
 	dbCmd.PersistentFlags().String(Driver, "postgres", "name of the database driver")
 
-	viper.BindPFlag(Migrations, dbCmd.PersistentFlags().Lookup(Migrations))
-	viper.BindPFlag(Driver, dbCmd.PersistentFlags().Lookup(Driver))
+	_ = viper.BindPFlag(Migrations, dbCmd.PersistentFlags().Lookup(Migrations))
+	_ = viper.BindPFlag(Driver, dbCmd.PersistentFlags().Lookup(Driver))
 
-	viper.BindEnv(Migrations, "MIGRATIONS")
-	viper.BindEnv(Driver, "DRIVER")
+	_ = viper.BindEnv(Migrations, "MIGRATIONS")
+	_ = viper.BindEnv(Driver, "DRIVER")
 }
 
 // AddTo applies the migration database commands under a "db" command.

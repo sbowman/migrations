@@ -124,6 +124,30 @@ func Migrate(db *sql.DB, directory string, version int) error {
 	return nil
 }
 
+// Rollback a number of migrations.  If steps is less than 2, rolls back the last migration.
+func Rollback(db *sql.DB, directory string, steps int) error {
+	if steps < 2 {
+		steps = 1
+	}
+
+	latest, err := LatestMigration(db)
+	if err != nil {
+		return err
+	}
+
+	revision, err := Revision(latest)
+	if err != nil {
+		return err
+	}
+
+	version := revision - steps
+	if version < 0 {
+		version = 0
+	}
+
+	return Migrate(db, directory, version)
+}
+
 // Available returns the list of SQL migration paths in order.  If direction is
 // Down, returns the migrations in reverse order (migrating down).
 func Available(directory string, direction Direction) ([]string, error) {

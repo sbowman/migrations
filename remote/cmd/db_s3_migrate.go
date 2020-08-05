@@ -4,11 +4,11 @@ import (
 	"database/sql"
 	"os"
 
-	"github.com/sbowman/migrations/v2/remote"
-
-	"github.com/sbowman/migrations/v2"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
+
+	"github.com/sbowman/migrations/v2"
+	"github.com/sbowman/migrations/v2/remote"
 )
 
 // Revision is the migration revision number setting.
@@ -77,6 +77,6 @@ func init() {
 
 	migrateS3Cmd.Flags().Int(Revision, -1, "migrate to this revision; defaults to latest")
 
-	viper.BindPFlag(Revision, migrateS3Cmd.Flags().Lookup(Revision))
-	viper.BindEnv(Revision, "REVISION")
+	_ = viper.BindPFlag(Revision, migrateS3Cmd.Flags().Lookup(Revision))
+	_ = viper.BindEnv(Revision, "REVISION")
 }

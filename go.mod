@@ -2,6 +2,8 @@ module github.com/sbowman/migrations/v2
 
 go 1.13
 
+
+
 require (
 	github.com/aws/aws-sdk-go v1.25.5
 	github.com/lib/pq v1.2.0
