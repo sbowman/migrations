@@ -1,6 +1,6 @@
 # Go SQL Migrations
 
-[![PkgGoDev](https://pkg.go.dev/badge/github.com/sbowman/migrations/v2)](https://pkg.go.dev/github.com/sbowman/migrations/v2)
+[![PkgGoDev](https://pkg.go.dev/badge/github.com/sbowman/migrations)](https://pkg.go.dev/github.com/sbowman/migrations)
 
 The migrations package is designed to help manage database revisions in Go
 applications.  It works in a similar fashion to Ruby on Rails ActiveRecord 
@@ -12,7 +12,7 @@ up or down, based on the current "revision" of the database.
 The "test" directory is used to test the migrations, both local and remote, and
 provides a complete example of using the package.
 
-Migrations 1.1.0 is completely API-compatible with Migrations 1.0.0.  Additionally,
+Migrations 1.1.1 is completely API-compatible with Migrations 1.0.0.  Additionally,
 all the new remote migration functionality and Cobra/Viper command support 
 described below is completely optional.  It is isolated in packages so as not to 
 pull in either the Cobra, Viper, or AWS packages into your application unless 

@@ -1,8 +1,6 @@
-module github.com/sbowman/migrations/v2
+module github.com/sbowman/migrations
 
 go 1.13
-
-
 
 require (
 	github.com/aws/aws-sdk-go v1.25.5

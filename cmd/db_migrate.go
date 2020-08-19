@@ -7,7 +7,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
-	"github.com/sbowman/migrations/v2"
+	"github.com/sbowman/migrations"
 )
 
 // Revision is the database migration revision setting name.
