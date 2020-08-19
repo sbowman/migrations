@@ -1,5 +1,7 @@
 # Go SQL Migrations
 
+[![PkgGoDev](https://pkg.go.dev/badge/github.com/sbowman/migrations)](https://pkg.go.dev/github.com/sbowman/migrations)
+
 The migrations package is designed to help manage database revisions in Go
 applications.  It works in a similar fashion to Ruby on Rails ActiveRecord 
 migrations:  create a directory for your migrations, add numberically ordered
