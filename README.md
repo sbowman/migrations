@@ -313,9 +313,9 @@ Additionally, you can run your migrations from within your app when it starts up
 Note that this is exactly the same as running on the local file system, except
 the migration path is assumed to be the bucket name, "my-bucket-name".
    
-## Migration Flags (1.2)
+## Migration Flags (1.3)
 
-In version 1.2, migrations includes support for custom flags in the SQL scripts.
+In version 1.3, migrations includes support for custom flags in the SQL scripts.
 There is only one flag at present (`/notx`), but additonal flags could be 
 added in the future.
 
