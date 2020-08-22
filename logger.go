@@ -34,6 +34,17 @@ func (log *DefaultLogger) Debugf(format string, args ...interface{}) {
 
 // Infof outputs info or error messages to stderr.
 func (log *DefaultLogger) Infof(format string, args ...interface{}) {
-	fmt.Fprintf(os.Stderr, format, args...)
-	fmt.Fprintln(os.Stderr)
+	_, _ = fmt.Fprintf(os.Stderr, format, args...)
+	_, _ = fmt.Fprintln(os.Stderr)
+}
+
+// NilLogger hides migration logging output.
+type NilLogger struct{}
+
+// Debugf outputs nothing.
+func (log *NilLogger) Debugf(format string, args ...interface{}) {
+}
+
+// Infof outputs nothing.
+func (log *NilLogger) Infof(format string, args ...interface{}) {
 }

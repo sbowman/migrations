@@ -42,6 +42,7 @@ var (
 	// Output defaults to writing to disk.
 	IO Reader
 
+	// Matches the Up/Down sections in the SQL migration file
 	dirRe = regexp.MustCompile("^#\\s*-{3}\\s*!(.*)\\s*(?:.*)?$")
 )
 
@@ -110,7 +111,7 @@ func Migrate(db *sql.DB, directory string, version int) error {
 
 		if ShouldRun(tx, path, direction, version) {
 			Log.Infof("Running migration %s %s", path, direction)
-			if err = Run(tx, path, direction); err != nil {
+			if err = Run(db, tx, path, direction); err != nil {
 				tx.Rollback()
 				return err
 			}
@@ -282,15 +283,23 @@ func IsDown(version int, desired int) bool {
 
 // Run reads the SQL file and applies it to the database.  If successful, mark
 // the migration as completed.
-func Run(tx *sql.Tx, path string, direction Direction) error {
-	doc, err := ReadSQL(path, direction)
+func Run(db *sql.DB, tx *sql.Tx, path string, direction Direction) error {
+	doc, mods, err := ReadSQL(path, direction)
 	if err != nil {
 		return err
 	}
 
-	_, err = tx.Exec(doc)
-	if err != nil {
-		return err
+	// Run the migration outside of the transaction?
+	if HasMod(mods, "/notx") {
+		_, err = db.Exec(doc)
+		if err != nil {
+			return err
+		}
+	} else {
+		_, err = tx.Exec(doc)
+		if err != nil {
+			return err
+		}
 	}
 
 	if err = Migrated(tx, path, direction); err != nil {
@@ -300,27 +309,73 @@ func Run(tx *sql.Tx, path string, direction Direction) error {
 	return nil
 }
 
+// HasMod looks for the migration modification passed in from the SQL.  Mods
+// should be indicated like so:
+//
+//     # --- !Up /notx
+//     insert into sample (name) values ('abc');
+//
+//     # --- !Down /notx
+//     delete from sample where name = 'abc';
+//
+// The only modification supported currently is `/notx`, which runs the SQL
+// outside a transaction.
+func HasMod(mods []string, value string) bool {
+	for _, mod := range mods {
+		if strings.EqualFold(mod, value) {
+			return true
+		}
+	}
+
+	return false
+}
+
 // ReadSQL reads the migration and filters for the up or down SQL commands.
-func ReadSQL(path string, direction Direction) (string, error) {
+func ReadSQL(path string, direction Direction) (string, []string, error) {
 	f, err := IO.Read(path)
 	if err != nil {
-		return "", nil
+		return "", nil, nil
 	}
 
 	sqldoc := new(bytes.Buffer)
 	parsing := false
+
+	// Collect any modifiers, e.g. /notx, from the SQL direction line
+	modifiers := make(map[string]struct{})
+
 	s := bufio.NewScanner(f)
 	for s.Scan() {
 		found := dirRe.FindStringSubmatch(s.Text())
 		if len(found) == 2 {
-			parsing = Direction(strings.ToLower(found[1])) == direction
+			mods := strings.Split(found[1], " ")
+			dir := strings.ToLower(mods[0])
+			mods = mods[1:]
+
+			if Direction(dir) == direction {
+				parsing = true
+
+				for _, mod := range mods {
+					mod = strings.TrimSpace(mod)
+					if mod != "" {
+						modifiers[mod] = struct{}{}
+					}
+				}
+				continue
+			}
+
+			parsing = false
 		} else if parsing {
 			sqldoc.Write(s.Bytes())
 			sqldoc.WriteRune('\n')
 		}
 	}
 
-	return sqldoc.String(), nil
+	var mods []string
+	for mod := range modifiers {
+		mods = append(mods, mod)
+	}
+
+	return sqldoc.String(), mods, nil
 }
 
 // LatestMigration returns the name of the latest migration run against the

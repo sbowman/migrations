@@ -1,7 +1,7 @@
 # --- !Up
-create table sample (
+create table samples (
     name varchar(64) primary key
 );
 
 # --- !Down
-drop table sample
+drop table samples

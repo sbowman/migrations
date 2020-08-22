@@ -38,6 +38,7 @@ func init() {
 // * db create - creates a new migration
 // * db migrate - runs the migrations
 //
+// Deprecated: to be removed in a future version.
 func AddTo(cmd *cobra.Command) {
 	cmd.AddCommand(dbCmd)
 }

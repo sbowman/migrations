@@ -12,11 +12,19 @@ up or down, based on the current "revision" of the database.
 The "test" directory is used to test the migrations, both local and remote, and
 provides a complete example of using the package.
 
-Migrations 1.1.1 is completely API-compatible with Migrations 1.0.0.  Additionally,
+Migrations 1.2.1 is completely API-compatible with Migrations 1.0.0.  Additionally,
 all the new remote migration functionality and Cobra/Viper command support 
 described below is completely optional.  It is isolated in packages so as not to 
-pull in either the Cobra, Viper, or AWS packages into your application unless 
-you use them.
+pull in either the Cobra, Viper, or AWS packages into your binary unless you use
+them.
+
+## Deprecation Warnings
+
+As of version 1.2, Cobra and Viper integrations are deprecated.  Obviously not
+everyone is using these packages, and it seems presumptuous to force others to
+include them.
+
+The functionality will be completely removed in version 1.3.
 
 ## Adding Migrations to Your Application
 
@@ -305,3 +313,25 @@ Additionally, you can run your migrations from within your app when it starts up
 Note that this is exactly the same as running on the local file system, except
 the migration path is assumed to be the bucket name, "my-bucket-name".
    
+## Migration Flags (1.2)
+
+In version 1.2, migrations includes support for custom flags in the SQL scripts.
+There is only one flag at present (`/notx`), but additonal flags could be 
+added in the future.
+
+To tweak how the migration is processed, include the flag at the end of the
+up or down line/comment in the migration.  For example:
+
+    # --- !Up /notx
+    
+Make sure to put a space between the direction value, e.g. `Up`, and the flag,
+in this case, `/notx`
+
+### Flag /notx
+
+The `/notx` flag indicates to the migration processing functions that this
+migration should **not** be run in a transaction.  
+
+This is helpful in some situations, but use it with care and keep the `/notx` 
+migrations small.  If the migration only partially completes, you may need to 
+manually clean up the database before migrations can continue.

@@ -56,6 +56,8 @@ func init() {
 // The "db migrate" command also accepts a "--local" flag to run migrations
 // locally, from disk, instead of from the S3 bucket.  This allows testing of
 // the migrations during development.
+//
+// Deprecated: to be removed in a future version.
 func AddRemoteTo(cmd *cobra.Command) {
 	cmd.AddCommand(dbCmd)
 }
