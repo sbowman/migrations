@@ -6,6 +6,8 @@ import (
 	"os"
 	"testing"
 
+	_ "github.com/lib/pq"
+
 	"github.com/sbowman/migrations"
 )
 
@@ -59,8 +61,8 @@ func TestUp(t *testing.T) {
 		t.Errorf("Didn't find expected record in database: %s", err)
 	}
 
+	var name string
 	for rows.Next() {
-		var name string
 		if err := rows.Scan(&name); err != nil {
 			t.Errorf("Failed to get name from database: %s", err)
 		}
@@ -68,6 +70,10 @@ func TestUp(t *testing.T) {
 		if name != "Bob" {
 			t.Errorf("Expected name Bob, got %s", name)
 		}
+	}
+
+	if name == "" {
+		t.Error("Name not found")
 	}
 }
 
@@ -96,15 +102,19 @@ func TestRevisions(t *testing.T) {
 		t.Errorf("Didn't find expected record in database: %s", err)
 	}
 
+	var email string
 	for rows.Next() {
-		var email string
 		if err := rows.Scan(&email); err != nil {
-			t.Errorf("Failed to get name from database: %s", err)
+			t.Errorf("Failed to get email from database: %s", err)
 		}
 
 		if email != "bob@home.com" {
 			t.Errorf("Expected email bob@home.com for Bob, got %s", email)
 		}
+	}
+
+	if email == "" {
+		t.Error("Email not found")
 	}
 }
 
@@ -125,15 +135,19 @@ func TestDown(t *testing.T) {
 		t.Errorf("Didn't find expected record in database: %s", err)
 	}
 
+	var email string
 	for rows.Next() {
-		var email string
 		if err := rows.Scan(&email); err != nil {
-			t.Errorf("Failed to get name from database: %s", err)
+			t.Errorf("Failed to get email from database: %s", err)
 		}
 
 		if email != "bob@home.com" {
 			t.Errorf("Expected email bob@home.com for Bob, got %s", email)
 		}
+	}
+
+	if email == "" {
+		t.Error("Email not found")
 	}
 
 	// Rollback
@@ -230,10 +244,14 @@ func TestNoTxFlag(t *testing.T) {
 		t.Errorf("Unable to query for samples: %s", err)
 	}
 
+	var name string
 	for rows.Next() {
-		var name string
 		if err := rows.Scan(&name); err != nil {
 			t.Error("Unable to scan result")
+		}
+
+		if name == "abc" {
+			fmt.Println("Found abc")
 		}
 
 		if name != "abc" {
@@ -243,6 +261,10 @@ func TestNoTxFlag(t *testing.T) {
 		if name == "zzz" {
 			t.Error("Didn't expect the zzz record to get inserted")
 		}
+	}
+
+	if name == "" {
+		t.Errorf("Expected an abc record; didn't find one")
 	}
 
 	// Make sure the migration didn't "succeed"
@@ -299,6 +321,10 @@ func clean(t *testing.T) {
 		if _, err := conn.Exec("drop table if exists " + name); err != nil {
 			t.Fatalf("Couldn't drop table %s: %s", name, err)
 		}
+	}
+
+	if name == "" {
+		t.Error("Name not found")
 	}
 }
 
