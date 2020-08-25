@@ -112,7 +112,9 @@ func Migrate(db *sql.DB, directory string, version int) error {
 		if ShouldRun(tx, path, direction, version) {
 			Log.Infof("Running migration %s %s", path, direction)
 			if err = Run(db, tx, path, direction); err != nil {
-				tx.Rollback()
+				if err1 := tx.Rollback(); err1 != nil {
+					Log.Infof("Unable to rollback transaction: %s", err1)
+				}
 				return err
 			}
 		}
@@ -291,8 +293,8 @@ func Run(db *sql.DB, tx *sql.Tx, path string, direction Direction) error {
 
 	// Run the migration outside of the transaction?
 	if HasMod(mods, "/notx") {
-		_, err = db.Exec(doc)
-		if err != nil {
+		Log.Infof("Warning!  Migration %s is not running in a transaction", path)
+		if err := RunIsolated(db, doc); err != nil {
 			return err
 		}
 	} else {
@@ -437,7 +439,9 @@ func CreateSchemaMigrations(db *sql.DB) error {
 	if MissingSchemaMigrations(tx) {
 		Log.Infof("Creating schema_migrations table in the database")
 		if _, err := tx.Exec("create table schema_migrations(migration varchar(1024) not null primary key)"); err != nil {
-			tx.Rollback()
+			if err1 := tx.Rollback(); err1 != nil {
+				Log.Infof("Problem rolling back when failing to create the schema_migrations table: %s", err1)
+			}
 			return err
 		}
 	}

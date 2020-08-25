@@ -25,7 +25,7 @@ var conn *sql.DB
 func TestMain(m *testing.M) {
 	var err error
 
-	migrations.Log = new(migrations.NilLogger)
+	// migrations.Log = new(migrations.NilLogger)
 
 	conn, err = sql.Open("postgres", "postgres://postgres@localhost/migrations_test?sslmode=disable")
 	if err != nil {
