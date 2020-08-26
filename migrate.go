@@ -44,7 +44,7 @@ var (
 	IO Reader
 
 	// Matches the Up/Down sections in the SQL migration file
-	dirRe = regexp.MustCompile("^#\\s*-{3}\\s*!(.*)\\s*(?:.*)?$")
+	dirRe = regexp.MustCompile("^#?\\s*-{3}\\s*!(.*)\\s*(?:.*)?$")
 )
 
 func init() {
@@ -111,11 +111,12 @@ func Migrate(db *sql.DB, directory string, version int) error {
 // You should call Migrate() to run migrations.  This function is only public to support testing;
 // calling it directly will likely generate errors.
 func RunMigrations(db *sql.DB, directory string, direction Direction, version int, migrations []string) error {
-	// To support asynchronous migrations
-	var wg sync.WaitGroup
-
 	for _, migration := range migrations {
 		path := fmt.Sprintf("%s%c%s", directory, os.PathSeparator, migration)
+
+		// To support asynchronous migrations - this allows the asynchronous migrations
+		// to run after the schema_migration transaction commits
+		var wg sync.WaitGroup
 
 		tx, err := db.Begin()
 		if err != nil {
@@ -135,10 +136,10 @@ func RunMigrations(db *sql.DB, directory string, direction Direction, version in
 		if err = tx.Commit(); err != nil {
 			return err
 		}
-	}
 
-	// Wait for the asynchronous migrations to complete
-	wg.Wait()
+		// Wait for any asynchronous migrations to complete
+		wg.Wait()
+	}
 
 	return nil
 }

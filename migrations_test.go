@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"fmt"
 	"os"
+	"strings"
 	"testing"
 
 	_ "github.com/lib/pq"
@@ -34,6 +35,45 @@ func TestMain(m *testing.M) {
 	}
 
 	os.Exit(m.Run())
+}
+
+// TestMatch checks that we can match "up" and "down" sections in the files.
+func TestMatch(t *testing.T) {
+	doc, _, err := migrations.ReadSQL("./sql/match_hash.txt", migrations.Up)
+	if err != nil {
+		t.Errorf("Unable to parsh hashed up: %s", err)
+	}
+
+	if strings.TrimSpace(doc) != "Matched Up" {
+		t.Errorf(`Expected "Matched Up", but got "%s"`, strings.TrimSpace(doc))
+	}
+
+	doc, _, err = migrations.ReadSQL("./sql/match_hash.txt", migrations.Down)
+	if err != nil {
+		t.Errorf("Unable to parsh hashed down: %s", err)
+	}
+
+	if strings.TrimSpace(doc) != "Matched Down" {
+		t.Errorf(`Expected "Matched Down", but got "%s"`, strings.TrimSpace(doc))
+	}
+
+	doc, _, err = migrations.ReadSQL("./sql/match_no_hash.txt", migrations.Up)
+	if err != nil {
+		t.Errorf("Unable to parsh no hashed up: %s", err)
+	}
+
+	if strings.TrimSpace(doc) != "Matched Up" {
+		t.Errorf(`Expected "Matched Up", but got "%s"`, strings.TrimSpace(doc))
+	}
+
+	doc, _, err = migrations.ReadSQL("./sql/match_no_hash.txt", migrations.Down)
+	if err != nil {
+		t.Errorf("Unable to parsh no hashed down: %s", err)
+	}
+
+	if strings.TrimSpace(doc) != "Matched Down" {
+		t.Errorf(`Expected "Matched Down", but got "%s"`, strings.TrimSpace(doc))
+	}
 }
 
 // TestUp confirms upward bound migrations work.

@@ -382,5 +382,11 @@ semicolons) runs in its own separate goroutine, with no guaranteed order.  If
 this is not desirable, break up your commands into separate, ordered migrations,
 and run each with `/async`.      
 
+The migrations will wait until all the SQL commands in an asynchronous migration
+have completed before moving to the next migration file.  In other words, 
+multiple async migration files are guaranteed to run in order as a whole, but 
+individual commands within each migration file will be run in a non-determinstic 
+order.
+
 To watch for asynchronous failures in the logs, filter for 
 `SQL command "..." failed asynchronously`, followed by the error message.
