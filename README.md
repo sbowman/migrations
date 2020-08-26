@@ -9,14 +9,40 @@ SQL files with an "up" and "down" section, then write your "up" and "down"
 migrations.  You may then call functions in the package to migrate the database
 up or down, based on the current "revision" of the database.
 
-The "test" directory is used to test the migrations, both local and remote, and
-provides a complete example of using the package.
+The `migrations` package is designed to be included in your product binary.
+When the application deploys to the server, you can run your migrations from
+the server, without manually having to setup the database.  
 
-Migrations 1.3.1 is completely API-compatible with Migrations 1.0.0.  Additionally,
-all the new remote migration functionality and Cobra/Viper command support 
-described below is completely optional.  It is isolated in packages so as not to 
-pull in either the Cobra, Viper, or AWS packages into your binary unless you use
-them.
+Alternatively, you could build a small CLI binary or Docker container, include 
+the `migrations` package and your SQL files in the image, and run that 
+standalone.
+
+In a cloud environment like Kubernetes, you might create a "maintenance" pod
+to run migrations on startup (and periodically clean out old data from the 
+database).  Implement an HTTP endpoint that holds on to any clients until 
+`migrations` complete.  When a client starts, it requests that maintentance HTTP 
+endpoint before accepting its own requests.  When the migrations finish in the
+maintenance pod, the maintenance pod allows the HTTP endpoint to finally reply 
+(and simply reply with a 2XX immediately for any future requests).  This ensures 
+your applications, on deployment, all wait for migrations to complete before 
+accepting requests, so they are using the latest and greatest version of your 
+database.
+
+Migrations 1.3.1 is completely API-compatible with Migrations 1.0.0.  
+
+All the remote migration functionality and Cobra/Viper command support described 
+below is completely optional.  It is isolated in packages so as not to pull in 
+either the Cobra, Viper, or AWS packages into your binary unless you use them.
+
+## Development Notes
+
+The "sql" directory is used to test the migrations.  Its contents should *NOT*
+be included in your applications.
+
+The "cmd" directory contains some sample code describing how to setup 
+`migrations` functionaltiy in your applications, using the Cobra and Viper 
+packages.  (_This package will eventually be deprecated, and the examples moved
+to proper `Example` code._)
 
 ## Deprecation Warnings
 
@@ -84,11 +110,56 @@ Note: *make sure to load the database driver before applying migrations!*
 
     import _ "github.com/lib/pq"
     
-## Logging
+### Asynchronous Migrations (1.3)
 
-Migrations uses a simple `Logger` interface to expose migration information to
-the user.  By default, this goes to `stdout`.  You're welcome to implement 
-your own logger and wire migrations logging into your own log output.
+As of version 1.3, the `migrations` package supports asynchronous migrations
+(see the `/async` flag below).  This allows longer running migrations to run
+in the background, while allowning the main, syncrhonous migrations to complete.
+
+If you use the `Migrate` function, it will block until all asynchronous 
+migrations complete.
+
+However, if you're using something like the "maintenance" pod described in the
+introduction, you may want to allow your migrations to run to completion, let
+your other pods depending on those synchronous migrations know the database is
+ready, while letting the longer running asynchronous migrations more time to
+complete in the background.  To do this, call `MigrateAsync` and handle the
+`migrations.ResultChannel` yourself.
+
+For example:
+
+	asyncResults, err := migrations.MigrateAsync(dbConn, pathToMigrations, 
+	    migrateToRevision)
+	if err != nil {
+		return fmt.Errorf("migrations failed: %s', err)
+	}
+
+    // Once migrations.MigrateAsync returns, all the synchronous migrations 
+    // have completed...
+    NotifyClientsMigrationsCompleted();
+    
+	// Blocks until the asynchronous requests complete; logs any errors in the
+	// asynchronous migrations 
+	for result := range asyncResults {
+		if result.Err != nil {
+			if result.Command == "" {
+				Log.Infof("Asynchronous migration %s failed: %s", 
+				    result.Migration, result.Err)
+				continue
+			}
+
+			Log.Infof("Asynchronous migration %s failed on command %s: %s",
+				result.Migration, result.Command, result.Err)
+		}
+	}
+
+    // When asynchronous migrations finish, the asyncResults channel closes
+
+## Logging (1.0)
+
+The `migrations` package uses a simple `Logger` interface to expose migration 
+information to the user.  By default, this goes to `stdout`.  You're welcome to 
+implement your own logger and wire migrations logging into your own log output.
 
 Here's the interface:
 
@@ -100,6 +171,11 @@ Here's the interface:
  
 Just assign your logger to `migrations.Log` before running any migration 
 functions.
+
+There's also a `NilLogger` available, if you'd like to hide all `migrations`
+output.
+
+    migrations.Log = new(migrations.NilLogger)
 
 ## Cobra & Viper (Deprecated)
 
@@ -168,7 +244,6 @@ Note the above line formats are required, including the exclamation points, or
 `#` at the front of the up and down sections is optional, e.g. `--- !Up` is
 equivalent to `# --- !Up`, to support a valid SQL syntax and syntax 
 highlighters.**
-
 
 The "down" section should contain the code necessary to rollback the "up" 
 changes.
@@ -276,7 +351,7 @@ migrations directory:
 See the remote/cmd package for examples (or feel free to use them in your own
 spf13/cobra and spf13/viper applications).
 
-### Cobra/Viper Support
+### Cobra/Viper Support (Deprecated)
 
 Similar to the Cobra/Viper support describe above for migration commands against
 local files, a set of remote S3-compatible commands exist that may be integrated
@@ -340,53 +415,34 @@ the migration path is assumed to be the bucket name, "my-bucket-name".
 ## Migration Flags (1.3)
 
 In version 1.3, migrations includes support for custom flags in the SQL scripts.
-There is only one flag at present (`/notx`), but additonal flags could be 
+There is only one flag at present (`/async`), but additonal flags could be 
 added in the future.
 
 To tweak how the migration is processed, include the flag at the end of the
 up or down line/comment in the migration.  For example:
 
-    # --- !Up /notx /async
+    # --- !Up /async
     
 Make sure to put a space between the direction value, e.g. `Up`, and each flag,
-in this case, `/notx` and `/async`.
-
-### Flag /notx
-
-The `/notx` flag indicates to the migration processing functions that this
-migration should **not** be run in a transaction.  
-
-This is helpful in some situations, but use it with care and keep the `/notx` 
-migrations small.  If the migration only partially completes, you may need to 
-manually clean up the database before migrations can continue.
+in this case, `/async`.
 
 ### Flag /async
 
-The `/async` flag runs the migration's SQL commands in a separate process, 
-asynchronously, using a different database connection and transaction than the 
-main `migrations` connection.  This allows long-running background tasks to run 
-outside of the transactional flow of migrations and not block.  For example, 
-`/async` is useful in PostgreSQL migrations if you need to run 
-`CREATE INDEX CONCURRENTLY`.
+The `/async` flag will run the migration in a separate thread.  This can be
+useful for running migrations that can optionally fail, or long-running 
+migrations that can run in the background for a while after your application
+starts.  
 
-The `/async` command requires the `/notx` flag. It is ignored if `/notx` is not
-present.
+Use this flag with caution.  The migration will be marked as completed (recorded
+in the `schema_migrations` table in the database) immediately after it is
+handed off to the background process.  If it fails, it will return an error on
+a results channel (which your application may listen for), but it will still 
+appear to be successfully completed (because it's in the `schema_migrations`
+table).  This is designed this way on purpose, to be the least invasive
+approach to asynchronous migrations.  But that means if something goes wrong
+in an asynchronous migration, it's your responsibility to manually resolve the
+problem.
 
-However, this flag also means that **migrations will be marked as successful in 
-the `schema_migrations` table even if one or more of their SQL commands fail**.
-If your database cannot function with an `/async` migration passing this "false
-positive," you may need to reconsider using `/async`.
-
-Note:  with `/async` enabled, each SQL command (i.e. statement separated by 
-semicolons) runs in its own separate goroutine, with no guaranteed order.  If
-this is not desirable, break up your commands into separate, ordered migrations,
-and run each with `/async`.      
-
-The migrations will wait until all the SQL commands in an asynchronous migration
-have completed before moving to the next migration file.  In other words, 
-multiple async migration files are guaranteed to run in order as a whole, but 
-individual commands within each migration file will be run in a non-determinstic 
-order.
-
-To watch for asynchronous failures in the logs, filter for 
-`SQL command "..." failed asynchronously`, followed by the error message.
+With the `/async` function there is a new `MigrateAsync` function you can use
+to better control the migrations.  See the example above for a sample of how
+to use it.

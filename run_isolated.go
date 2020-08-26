@@ -1,52 +1,92 @@
 package migrations
 
 import (
+	"bytes"
 	"database/sql"
 	"errors"
 	"strings"
-	"sync"
 )
 
 var ErrNoCommand = errors.New("no SQL command found")
 var ErrNoState = errors.New("no SQL parser state")
 
-// RunIsolated breaks apart a SQL migration into separate commands and runs each in isolation.
-// Used to run migrations outside of a transaction.
-func RunIsolated(wg *sync.WaitGroup, db *sql.DB, doc string, mods []string) error {
-	cmds, err := ParseSQL(doc)
+// RequestChannel is the channel for submitting asynchronous migration requests.  Asynchronous
+// migrations are run in the background, and must complete in order, but they do not wait for
+// synchronous migrations to complete.
+type RequestChannel chan AsyncRequest
+
+// ResponseChannel is the channel on which asynchronous migrations return their results (did they
+// succeed or fail).  The MigrateAsync function returns this channel, so your application can
+// listen for the background migrations to complete before reporting completion.
+type ResultChannel chan AsyncResult
+
+// AsyncRequest is submitted to the background asynchronous migrations processor.
+type AsyncRequest struct {
+	Migration string    // Full path to the migration
+	Direction Direction // The direction to run
+	SQL       SQL       // The SQL to run (parsed from the migration)
+	Target    int       // The desired revision number to migration to
+}
+
+// AsyncResult is returned by asynchronous SQL migration commands on the Results channel
+type AsyncResult struct {
+	Migration string // The migration filename
+	Err       error  // Is nil if the migration succeeded
+	Command   SQL    // The SQL command that failed if the migration failed; blank otherwise
+}
+
+// HandleAsync should be run in the background to listen for asynchronous migration requests.  These
+// requests are run in order, within a transaction, but the main synchronous migrations will not
+// wait for these to complete before continuing.
+func HandleAsync(db *sql.DB, requests RequestChannel, results ResultChannel) {
+	defer close(results)
+
+	for req := range requests {
+		Log.Infof("Running migration %s %s asynchronously", req.Migration, req.Direction)
+
+		if cmd, err := RunIsolated(db, req); err != nil {
+			results <- AsyncResult{req.Migration, err, cmd}
+			continue
+		}
+
+		results <- AsyncResult{Migration: req.Migration}
+	}
+}
+
+// RunIsolated breaks apart a SQL migration into separate commands and runs each in a single
+// transaction.  Helps asynchronous migrations return addition details about failures.
+func RunIsolated(db *sql.DB, req AsyncRequest) (SQL, error) {
+	commands, err := ParseSQL(req.SQL)
 	if err != nil {
-		return err
+		return "", err
 	}
 
-	if HasMod(mods, "/async") {
-		for _, cmd := range cmds {
-			wg.Add(1)
-
-			go func(db *sql.DB, cmd string) {
-				defer wg.Done()
-				if _, err := db.Exec(cmd); err != nil {
-					Log.Infof(`SQL command "%s" failed asynchronously: %s`, cmd, err)
-				}
-			}(db, cmd)
-		}
-		return nil
+	tx, err := db.Begin()
+	if err != nil {
+		return "", err
 	}
 
-	for _, cmd := range cmds {
-		if _, err := db.Exec(cmd); err != nil {
-			return err
+	for _, SQL := range commands {
+		_, err = tx.Exec(string(SQL))
+		if err != nil {
+			tx.Rollback()
+			return SQL, err
 		}
 	}
 
-	return nil
+	if err = tx.Commit(); err != nil {
+		return "", err
+	}
+
+	return "", nil
 }
 
 // ParseSQL breaks the SQL document apart into individual commands, so we can submit them to the
 // database one at a time.
-func ParseSQL(doc string) ([]string, error) {
-	var cmds []string
+func ParseSQL(doc SQL) ([]SQL, error) {
+	var cmds []SQL
 
-	parser := NewSQLParser(strings.TrimSpace(doc))
+	parser := NewSQLParser(strings.TrimSpace(string(doc)))
 	for parser.Next() {
 		cmd, err := parser.Get()
 		if err != nil {
@@ -99,14 +139,14 @@ func (p *SQLParser) Next() bool {
 }
 
 // Get the SQL command parsed by Next().  Note that the semicolon will be stripped off.
-func (p *SQLParser) Get() (string, error) {
+func (p *SQLParser) Get() (SQL, error) {
 	if p.cmd == nil {
 		return "", ErrNoCommand
 	} else if p.err != nil {
 		return "", p.err
 	}
 
-	return strings.TrimSpace(string(p.cmd)), nil
+	return SQL(bytes.TrimSpace(p.cmd)), nil
 }
 
 func (p *SQLParser) pushState(state parserState) {

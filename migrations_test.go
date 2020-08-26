@@ -26,7 +26,7 @@ var conn *sql.DB
 func TestMain(m *testing.M) {
 	var err error
 
-	// migrations.Log = new(migrations.NilLogger)
+	migrations.Log = new(migrations.NilLogger)
 
 	conn, err = sql.Open("postgres", "postgres://postgres@localhost/migrations_test?sslmode=disable")
 	if err != nil {
@@ -44,8 +44,8 @@ func TestMatch(t *testing.T) {
 		t.Errorf("Unable to parsh hashed up: %s", err)
 	}
 
-	if strings.TrimSpace(doc) != "Matched Up" {
-		t.Errorf(`Expected "Matched Up", but got "%s"`, strings.TrimSpace(doc))
+	if strings.TrimSpace(string(doc)) != "Matched Up" {
+		t.Errorf(`Expected "Matched Up", but got "%s"`, strings.TrimSpace(string(doc)))
 	}
 
 	doc, _, err = migrations.ReadSQL("./sql/match_hash.txt", migrations.Down)
@@ -53,8 +53,8 @@ func TestMatch(t *testing.T) {
 		t.Errorf("Unable to parsh hashed down: %s", err)
 	}
 
-	if strings.TrimSpace(doc) != "Matched Down" {
-		t.Errorf(`Expected "Matched Down", but got "%s"`, strings.TrimSpace(doc))
+	if strings.TrimSpace(string(doc)) != "Matched Down" {
+		t.Errorf(`Expected "Matched Down", but got "%s"`, strings.TrimSpace(string(doc)))
 	}
 
 	doc, _, err = migrations.ReadSQL("./sql/match_no_hash.txt", migrations.Up)
@@ -62,8 +62,8 @@ func TestMatch(t *testing.T) {
 		t.Errorf("Unable to parsh no hashed up: %s", err)
 	}
 
-	if strings.TrimSpace(doc) != "Matched Up" {
-		t.Errorf(`Expected "Matched Up", but got "%s"`, strings.TrimSpace(doc))
+	if strings.TrimSpace(string(doc)) != "Matched Up" {
+		t.Errorf(`Expected "Matched Up", but got "%s"`, strings.TrimSpace(string(doc)))
 	}
 
 	doc, _, err = migrations.ReadSQL("./sql/match_no_hash.txt", migrations.Down)
@@ -71,8 +71,8 @@ func TestMatch(t *testing.T) {
 		t.Errorf("Unable to parsh no hashed down: %s", err)
 	}
 
-	if strings.TrimSpace(doc) != "Matched Down" {
-		t.Errorf(`Expected "Matched Down", but got "%s"`, strings.TrimSpace(doc))
+	if strings.TrimSpace(string(doc)) != "Matched Down" {
+		t.Errorf(`Expected "Matched Down", but got "%s"`, strings.TrimSpace(string(doc)))
 	}
 }
 
@@ -240,16 +240,8 @@ func TestRollback(t *testing.T) {
 func TestTransactions(t *testing.T) {
 	defer clean(t)
 
-	if err := migrate(2); err != nil {
-		t.Fatalf("Unable to run migration to revision 2: %s", err)
-	}
-
-	// Skip the /notx migration; we'll test that elsewhere
-	skip(t, "3-no-tx.sql")
-
-	// Run the transaction check
-	if err := migrate(4); err == nil {
-		t.Error("Expected migration 4 to fail")
+	if err := migrate(3); err == nil {
+		t.Error("Expected migration to fail")
 	}
 
 	rows, err := conn.Query("select name from samples where name = 'abc'")
@@ -270,66 +262,6 @@ func TestTransactions(t *testing.T) {
 	}
 }
 
-// Does the /notx flag run the migration outside a transaction?
-func TestNoTxFlag(t *testing.T) {
-	defer clean(t)
-
-	if err := migrate(3); err == nil {
-		t.Error("Expected the /notx migration to generate an error")
-	}
-
-	rows, err := conn.Query("select name from samples where name = 'abc'")
-	if err != nil {
-		t.Errorf("Unable to query for samples: %s", err)
-	}
-
-	var name string
-	for rows.Next() {
-		if err := rows.Scan(&name); err != nil {
-			t.Error("Unable to scan result")
-		}
-
-		if name != "abc" {
-			t.Errorf("Expected abc, got %s", name)
-		}
-
-		if name == "zzz" {
-			t.Error("Didn't expect the zzz record to get inserted")
-		}
-	}
-
-	if name == "" {
-		t.Errorf("Expected an abc record; didn't find one")
-	}
-
-	// Make sure the migration didn't "succeed"
-	rows, err = conn.Query("select migration from schema_migrations")
-	if err != nil {
-		t.Errorf("Unable to query for migrations: %s", err)
-	}
-
-	var count int
-	for rows.Next() {
-		var migration string
-		if err := rows.Scan(&migration); err != nil {
-			t.Errorf("Unable to get migration data: %s", err)
-			continue
-		}
-
-		count++
-
-		if migration == "1-create-sample.sql" || migration == "2-add-email-to-sample.sql" {
-			continue
-		}
-
-		t.Errorf("Didn't expect migration %s", migration)
-	}
-
-	if count != 2 {
-		t.Errorf("Expected two migrations; found %d", count)
-	}
-}
-
 // Does the /async flag run the migration commands asynchronously?
 func TestAsyncFlag(t *testing.T) {
 	defer clean(t)
@@ -338,39 +270,51 @@ func TestAsyncFlag(t *testing.T) {
 		t.Fatalf("Unable to run migration to revision 2: %s", err)
 	}
 
-	// Run the migrations manually, so the WaitGroup blocks until they're all done.
-	if err := migrations.RunMigrations(conn, "./sql", migrations.Up, 5, []string{"5-check-async.sql"}); err != nil {
+	skip(t, "3-check-tx.sql")
+
+	// Need to wait for the results to check success
+	asyncResults, err := migrations.MigrateAsync(conn, "./sql", 4)
+	if err != nil {
 		t.Fatalf("Migrations failed: %s", err)
 	}
 
-	expected := []string{
-		"aaa",
-		"ccc",
-	}
-
-	for _, check := range expected {
-		rows, err := conn.Query("select name from samples where name = $1", check)
-		if err != nil {
-			t.Errorf("Unable to query for name %s: %s", check, err)
+	for result := range asyncResults {
+		if result.Err != nil {
+			t.Fatalf("Asychronous migration failed: %s", err)
 		}
 
-		var name string
-		for rows.Next() {
-			if err := rows.Scan(&name); err != nil {
-				t.Error("Unable to scan result")
+		if result.Migration != "./sql/4-check-async.sql" {
+			t.Errorf(`Expected result to include migration "./sql/4-check-async.sql," but got %s`, result.Migration)
+		}
+		expected := []string{
+			"aaa",
+			"ccc",
+		}
+
+		for _, check := range expected {
+			rows, err := conn.Query("select name from samples where name = $1", check)
+			if err != nil {
+				t.Errorf("Unable to query for name %s: %s", check, err)
 			}
 
-			if name == check {
-				break
-			}
-		}
+			var name string
+			for rows.Next() {
+				if err := rows.Scan(&name); err != nil {
+					t.Error("Unable to scan result")
+				}
 
-		if name == "" {
-			t.Errorf("Expected a %s record; didn't find one", check)
+				if name == check {
+					break
+				}
+			}
+
+			if name == "" {
+				t.Errorf("Expected a %s record; didn't find one", check)
+			}
 		}
 	}
 
-	// Make sure the migration succeeded (async should "fail silently" with bad SQL or errors)
+	// Make sure the migrations succeeded
 	rows, err := conn.Query("select migration from schema_migrations")
 	if err != nil {
 		t.Errorf("Unable to query for migrations: %s", err)
@@ -387,17 +331,165 @@ func TestAsyncFlag(t *testing.T) {
 
 		count++
 
-		if migration == "5-check-async.sql" {
+		if migration == "4-check-async.sql" {
 			found = true
 		}
 	}
 
-	if count != 3 {
-		t.Errorf("Expected three migrations; found %d", count)
+	if count != 4 {
+		t.Errorf("Expected four migrations; found %d", count)
 	}
 
 	if !found {
 		t.Errorf("The async migration was not logged in the schema_migrations table")
+	}
+}
+
+// Make sure migrations "complete" before long-running asynchronous migrations complete.
+//
+// THIS TEST TAKES 3 SECONDS TO COMPLETE!
+func TestSlowAsync(t *testing.T) {
+	defer clean(t)
+
+	if err := migrate(2); err != nil {
+		t.Fatalf("Unable to run migration to revision 2: %s", err)
+	}
+
+	skip(t, "3-check-tx.sql")
+
+	// Migration 5 will take five seconds to run
+	asyncResults, err := migrations.MigrateAsync(conn, "./sql", 5)
+	if err != nil {
+		t.Fatalf("Migrations failed: %s", err)
+	}
+
+	// Migration 5 should be marked as completed before it's done
+	rows, err := conn.Query("select migration from schema_migrations where migration = '5-slow-async.sql'")
+	if err != nil {
+		t.Errorf("Unable to query for migrations: %s", err)
+	}
+
+	var migration string
+	for rows.Next() {
+		if err := rows.Scan(&migration); err != nil {
+			t.Errorf("Unable to get migration data: %s", err)
+			continue
+		}
+	}
+
+	if migration == "" {
+		t.Error("Expected the schema_migration record to exist for the slow async query migration")
+	}
+
+	rows, err = conn.Query("select name from samples where name = 'slowup'")
+	if err != nil {
+		t.Errorf("Unable to query samples: %s", err)
+	}
+
+	var missing string
+	for rows.Next() {
+		if err := rows.Scan(&missing); err != nil {
+			t.Errorf("Unable to get samples data: %s", err)
+			continue
+		}
+	}
+
+	if missing != "" {
+		t.Errorf("Expected test record after slow async query to not be there yet, but it was: %s", missing)
+	}
+
+	// Wait for the slow request to complete, and the value after the slow query should be there
+	for result := range asyncResults {
+		if result.Err != nil {
+			t.Fatalf("Asychronous migration failed: %s", err)
+		}
+
+		if result.Migration != "./sql/5-slow-async.sql" {
+			continue
+		}
+
+		rows, err = conn.Query("select name from samples where name = 'slowup'")
+		if err != nil {
+			t.Errorf("Unable to query samples data: %s", err)
+		}
+
+		var found bool
+		for rows.Next() {
+			var name string
+			if err := rows.Scan(&name); err != nil {
+				t.Errorf("Unable to scan result: %s", err)
+			}
+
+			if name == "slowup" {
+				found = true
+				break
+			}
+		}
+
+		if !found {
+			t.Error("Expected a 'slowup' record; didn't find one")
+		}
+	}
+}
+
+// Test that the migration gets recorded even when an async migration failed.
+//
+// THIS TEST TAKES 3 SECONDS TO COMPLETE!
+func TestAsyncFailure(t *testing.T) {
+	defer clean(t)
+
+	if err := migrate(2); err != nil {
+		t.Fatalf("Unable to run migration to revision 2: %s", err)
+	}
+
+	skip(t, "3-check-tx.sql")
+	skip(t, "5-slow-async.sql")
+
+	// Migration 6 will fail
+	asyncResults, err := migrations.MigrateAsync(conn, "./sql", 6)
+	if err != nil {
+		t.Fatalf("Migrations failed: %s", err)
+	}
+
+	// Migration 6 should be marked as completed, even though it fails
+	rows, err := conn.Query("select migration from schema_migrations where migration = '6-bad-async.sql'")
+	if err != nil {
+		t.Errorf("Unable to query for migrations: %s", err)
+	}
+
+	var migration string
+	for rows.Next() {
+		if err := rows.Scan(&migration); err != nil {
+			t.Errorf("Unable to get migration data: %s", err)
+			continue
+		}
+	}
+
+	if migration == "" {
+		t.Error("Expected the schema_migration record to exist for the bad async query migration")
+	}
+
+	rows, err = conn.Query("select name from samples where name = 'slowup'")
+	if err != nil {
+		t.Errorf("Unable to query samples: %s", err)
+	}
+
+	for result := range asyncResults {
+		if result.Migration != "./sql/6-bad-async.sql" {
+			continue
+		}
+
+		if result.Err == nil {
+			t.Error("Expected 6-bad-async.sql to fail")
+		}
+
+		if result.Migration != "./sql/6-bad-async.sql" {
+			t.Errorf(`Expected "./sql/6-bad-async.sql" in the migration; was "%s"`, result.Migration)
+		}
+
+		if result.Command != "insert into samples (blah) values ('noway')" {
+			t.Errorf(`Expected "insert into samples (blah) values ('noway')" in the command; was "%s"`, result.Command)
+		}
 	}
 }
 

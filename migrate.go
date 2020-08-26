@@ -35,6 +35,11 @@ const (
 	None Direction = "none"
 )
 
+const (
+	// ModAsync is the modification flag indicating an asynchronous migration.
+	ModAsync = "/async"
+)
+
 var (
 	// ErrNameRequired returned if the user failed to supply a name for the
 	// migration.
@@ -46,6 +51,10 @@ var (
 	// Matches the Up/Down sections in the SQL migration file
 	dirRe = regexp.MustCompile("^#?\\s*-{3}\\s*!(.*)\\s*(?:.*)?$")
 )
+
+type MigrationState struct {
+	WaitGroup sync.WaitGroup
+}
 
 func init() {
 	IO = new(DiskReader)
@@ -76,72 +85,99 @@ func Create(directory string, name string) error {
 
 // Migrate runs the indicated SQL migration files against the database.
 //
-// Any files that don't have entries in the schema_migrations table will be
-// run to bring the database to the indicated version.  If the schema_migrations
-// table does not exist, this function will automatically create it.
+// Any files that don't have entries in the schema_migrations table will be run to bring the
+// database to the indicated version.  If the schema_migrations table does not exist, this function
+// will automatically create it.
 //
-// Indicate the version to roll towards, either forwards or backwards
-// (rollback).  By default we roll forwards to the current time, i.e. run all
-// the migrations.
+// Indicate the version to roll towards, either forwards or backwards (rollback).  By default we
+// roll forwards to the current time, i.e. run all the migrations.
 //
-// If check is true, won't actually run the migrations against Cassandra.
-// Instead just simulate the run and report on what would be migrated.
-//
-// Returns a list of the migrations that were successfully completed, or an
-// error if there are problems with the migration.  It is possible for this
-// function to return both successful migrations and an error, if some of the
-// migrations succeed before an error is encountered.
+// For asynchronous migrations (those flagged with `/async`). the individual SQL commands in the
+// migration are run concurrently, but the migration will not continue until all commands have
+// returned.  If you need to allow for longer-running SQL commands, use MigrateAsync.
 func Migrate(db *sql.DB, directory string, version int) error {
-	if err := CreateSchemaMigrations(db); err != nil {
+	asyncResults, err := MigrateAsync(db, directory, version)
+	if err != nil {
 		return err
+	}
+
+	// Blocks until the asynchronous requests complete
+	for result := range asyncResults {
+		if result.Err != nil {
+			if result.Command == "" {
+				Log.Infof("Asynchronous migration %s failed: %s", result.Migration, result.Err)
+				continue
+			}
+
+			Log.Infof("Asynchronous migration %s failed on command %s: %s",
+				result.Migration, result.Command, result.Err)
+		}
+	}
+
+	return nil
+}
+
+// MigrateAsync is similar to Migrate, but runs the asynchronous migrations completely in the
+// background, i.e. it allows the `/async` migrations to continue running in the background.  Good
+// for long-running commands, such as `CREATE INDEX CONCURRENTLY`.
+func MigrateAsync(db *sql.DB, directory string, version int) (ResultChannel, error) {
+	if err := CreateSchemaMigrations(db); err != nil {
+		return nil, err
 	}
 
 	direction := Moving(db, version)
 	migrations, err := Available(directory, direction)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
-	return RunMigrations(db, directory, direction, version, migrations)
-}
+	// Worst case scenario: everything is asynchronous!
+	asyncRequests := make(RequestChannel, len(migrations))
+	asyncResults := make(ResultChannel, len(migrations))
 
-// RunMigrations applies the migration files in the directory in the direction indicated to the
-// version specified, each in their own transaction (unless otherwise indicated by a /notx flag).
-//
-// You should call Migrate() to run migrations.  This function is only public to support testing;
-// calling it directly will likely generate errors.
-func RunMigrations(db *sql.DB, directory string, direction Direction, version int, migrations []string) error {
+	defer close(asyncRequests)
+
+	go HandleAsync(db, asyncRequests, asyncResults)
+
 	for _, migration := range migrations {
 		path := fmt.Sprintf("%s%c%s", directory, os.PathSeparator, migration)
 
-		// To support asynchronous migrations - this allows the asynchronous migrations
-		// to run after the schema_migration transaction commits
-		var wg sync.WaitGroup
-
 		tx, err := db.Begin()
 		if err != nil {
-			return err
+			return nil, err
 		}
 
 		if ShouldRun(tx, path, direction, version) {
-			Log.Infof("Running migration %s %s", path, direction)
-			if err = Run(&wg, db, tx, path, direction); err != nil {
-				if err1 := tx.Rollback(); err1 != nil {
-					Log.Infof("Unable to rollback transaction: %s", err1)
+			SQL, mods, err := ReadSQL(path, direction)
+			if err != nil {
+				return nil, err
+			}
+
+			// The async request will get marked as "migrated," even if it fails; this
+			// is as designed
+			if mods.Has(ModAsync) {
+				asyncRequests <- AsyncRequest{path, direction, SQL, version}
+			} else {
+				Log.Infof("Running migration %s %s", path, direction)
+
+				_, err = tx.Exec(string(SQL))
+				if err != nil {
+					tx.Rollback()
+					return nil, err
 				}
-				return err
+			}
+
+			if err = Migrated(tx, path, direction); err != nil {
+				return nil, err
 			}
 		}
 
 		if err = tx.Commit(); err != nil {
-			return err
+			return nil, err
 		}
-
-		// Wait for any asynchronous migrations to complete
-		wg.Wait()
 	}
 
-	return nil
+	return asyncResults, nil
 }
 
 // Rollback a number of migrations.  If steps is less than 2, rolls back the last migration.
@@ -300,40 +336,19 @@ func IsDown(version int, desired int) bool {
 	return version > desired
 }
 
-// Run reads the SQL file and applies it to the database.  If successful, mark
-// the migration as completed.
-func Run(wg *sync.WaitGroup, db *sql.DB, tx *sql.Tx, path string, direction Direction) error {
-	doc, mods, err := ReadSQL(path, direction)
-	if err != nil {
-		return err
-	}
+// SQL contains SQL commands or a migration.
+type SQL string
 
-	// Run the migration outside of the transaction?
-	if HasMod(mods, "/notx") {
-		Log.Infof("Warning!  Migration %s %s is not running in a transaction", path, direction)
-		if err := RunIsolated(wg, db, doc, mods); err != nil {
-			return err
-		}
-	} else {
-		if HasMod(mods, "/async") {
-			Log.Debugf("The /async command requires /notx (%s %s); ignoring", path, direction)
-		}
+// Modifiers collects the modification flags passed in from the SQL "up" and "down" lines.  For
+// example:
+//
+//     # --- !Up /notx /async
+//
+// These modifications are parsed and returned with the SQL from ReadSQL.
+type Modifiers []string
 
-		_, err = tx.Exec(doc)
-		if err != nil {
-			return err
-		}
-	}
-
-	if err = Migrated(tx, path, direction); err != nil {
-		return err
-	}
-
-	return nil
-}
-
-// HasMod looks for the migration modification passed in from the SQL.  Mods
-// should be indicated like so:
+// HasMod looks for the migration modification passed in from the SQL.  Mods should be indicated
+// like so:
 //
 //     # --- !Up /notx /async
 //     insert into sample (name) values ('abc');
@@ -341,10 +356,9 @@ func Run(wg *sync.WaitGroup, db *sql.DB, tx *sql.Tx, path string, direction Dire
 //     # --- !Down /notx
 //     delete from sample where name = 'abc';
 //
-// The only modification supported currently is `/notx`, which runs the SQL
-// outside a transaction.
-func HasMod(mods []string, value string) bool {
-	for _, mod := range mods {
+// The only modification supported currently is `/notx`, which runs the SQL outside a transaction.
+func (m Modifiers) Has(value string) bool {
+	for _, mod := range m {
 		if strings.EqualFold(mod, value) {
 			return true
 		}
@@ -354,7 +368,7 @@ func HasMod(mods []string, value string) bool {
 }
 
 // ReadSQL reads the migration and filters for the up or down SQL commands.
-func ReadSQL(path string, direction Direction) (string, []string, error) {
+func ReadSQL(path string, direction Direction) (SQL, Modifiers, error) {
 	f, err := IO.Read(path)
 	if err != nil {
 		return "", nil, nil
@@ -393,12 +407,12 @@ func ReadSQL(path string, direction Direction) (string, []string, error) {
 		}
 	}
 
-	var mods []string
+	var mods Modifiers
 	for mod := range modifiers {
 		mods = append(mods, mod)
 	}
 
-	return sqldoc.String(), mods, nil
+	return SQL(sqldoc.String()), mods, nil
 }
 
 // LatestMigration returns the name of the latest migration run against the
