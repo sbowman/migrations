@@ -12,6 +12,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 
 	// PostgreSQL driver
 	_ "github.com/lib/pq"
@@ -101,6 +102,18 @@ func Migrate(db *sql.DB, directory string, version int) error {
 		return err
 	}
 
+	return RunMigrations(db, directory, direction, version, migrations)
+}
+
+// RunMigrations applies the migration files in the directory in the direction indicated to the
+// version specified, each in their own transaction (unless otherwise indicated by a /notx flag).
+//
+// You should call Migrate() to run migrations.  This function is only public to support testing;
+// calling it directly will likely generate errors.
+func RunMigrations(db *sql.DB, directory string, direction Direction, version int, migrations []string) error {
+	// To support asynchronous migrations
+	var wg sync.WaitGroup
+
 	for _, migration := range migrations {
 		path := fmt.Sprintf("%s%c%s", directory, os.PathSeparator, migration)
 
@@ -111,7 +124,7 @@ func Migrate(db *sql.DB, directory string, version int) error {
 
 		if ShouldRun(tx, path, direction, version) {
 			Log.Infof("Running migration %s %s", path, direction)
-			if err = Run(db, tx, path, direction); err != nil {
+			if err = Run(&wg, db, tx, path, direction); err != nil {
 				if err1 := tx.Rollback(); err1 != nil {
 					Log.Infof("Unable to rollback transaction: %s", err1)
 				}
@@ -123,6 +136,9 @@ func Migrate(db *sql.DB, directory string, version int) error {
 			return err
 		}
 	}
+
+	// Wait for the asynchronous migrations to complete
+	wg.Wait()
 
 	return nil
 }
@@ -259,7 +275,7 @@ func Moving(db *sql.DB, version int) Direction {
 func ShouldRun(tx *sql.Tx, migration string, direction Direction, desiredVersion int) bool {
 	version, err := Revision(migration)
 	if err != nil {
-		Log.Debugf("Unable to determin the revision of %s", migration)
+		Log.Debugf("Unable to determine the revision of %s", migration)
 		return false
 	}
 
@@ -285,7 +301,7 @@ func IsDown(version int, desired int) bool {
 
 // Run reads the SQL file and applies it to the database.  If successful, mark
 // the migration as completed.
-func Run(db *sql.DB, tx *sql.Tx, path string, direction Direction) error {
+func Run(wg *sync.WaitGroup, db *sql.DB, tx *sql.Tx, path string, direction Direction) error {
 	doc, mods, err := ReadSQL(path, direction)
 	if err != nil {
 		return err
@@ -293,11 +309,15 @@ func Run(db *sql.DB, tx *sql.Tx, path string, direction Direction) error {
 
 	// Run the migration outside of the transaction?
 	if HasMod(mods, "/notx") {
-		Log.Infof("Warning!  Migration %s is not running in a transaction", path)
-		if err := RunIsolated(db, doc); err != nil {
+		Log.Infof("Warning!  Migration %s %s is not running in a transaction", path, direction)
+		if err := RunIsolated(wg, db, doc, mods); err != nil {
 			return err
 		}
 	} else {
+		if HasMod(mods, "/async") {
+			Log.Debugf("The /async command requires /notx (%s %s); ignoring", path, direction)
+		}
+
 		_, err = tx.Exec(doc)
 		if err != nil {
 			return err
@@ -314,7 +334,7 @@ func Run(db *sql.DB, tx *sql.Tx, path string, direction Direction) error {
 // HasMod looks for the migration modification passed in from the SQL.  Mods
 // should be indicated like so:
 //
-//     # --- !Up /notx
+//     # --- !Up /notx /async
 //     insert into sample (name) values ('abc');
 //
 //     # --- !Down /notx

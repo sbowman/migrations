@@ -204,11 +204,10 @@ func TestTransactions(t *testing.T) {
 		t.Fatalf("Unable to run migration to revision 2: %s", err)
 	}
 
-	// Skip migration 3
-	if _, err := conn.Exec("insert into schema_migrations values ('3-no-tx.sql')"); err != nil {
-		t.Fatalf("Failed to skip 3-no-tx.sql migration: %s", err)
-	}
+	// Skip the /notx migration; we'll test that elsewhere
+	skip(t, "3-no-tx.sql")
 
+	// Run the transaction check
 	if err := migrate(4); err == nil {
 		t.Error("Expected migration 4 to fail")
 	}
@@ -250,10 +249,6 @@ func TestNoTxFlag(t *testing.T) {
 			t.Error("Unable to scan result")
 		}
 
-		if name == "abc" {
-			fmt.Println("Found abc")
-		}
-
 		if name != "abc" {
 			t.Errorf("Expected abc, got %s", name)
 		}
@@ -292,6 +287,77 @@ func TestNoTxFlag(t *testing.T) {
 
 	if count != 2 {
 		t.Errorf("Expected two migrations; found %d", count)
+	}
+}
+
+// Does the /async flag run the migration commands asynchronously?
+func TestAsyncFlag(t *testing.T) {
+	defer clean(t)
+
+	if err := migrate(2); err != nil {
+		t.Fatalf("Unable to run migration to revision 2: %s", err)
+	}
+
+	// Run the migrations manually, so the WaitGroup blocks until they're all done.
+	if err := migrations.RunMigrations(conn, "./sql", migrations.Up, 5, []string{"5-check-async.sql"}); err != nil {
+		t.Fatalf("Migrations failed: %s", err)
+	}
+
+	expected := []string{
+		"aaa",
+		"ccc",
+	}
+
+	for _, check := range expected {
+		rows, err := conn.Query("select name from samples where name = $1", check)
+		if err != nil {
+			t.Errorf("Unable to query for name %s: %s", check, err)
+		}
+
+		var name string
+		for rows.Next() {
+			if err := rows.Scan(&name); err != nil {
+				t.Error("Unable to scan result")
+			}
+
+			if name == check {
+				break
+			}
+		}
+
+		if name == "" {
+			t.Errorf("Expected a %s record; didn't find one", check)
+		}
+	}
+
+	// Make sure the migration succeeded (async should "fail silently" with bad SQL or errors)
+	rows, err := conn.Query("select migration from schema_migrations")
+	if err != nil {
+		t.Errorf("Unable to query for migrations: %s", err)
+	}
+
+	var count int
+	var found bool
+	for rows.Next() {
+		var migration string
+		if err := rows.Scan(&migration); err != nil {
+			t.Errorf("Unable to get migration data: %s", err)
+			continue
+		}
+
+		count++
+
+		if migration == "5-check-async.sql" {
+			found = true
+		}
+	}
+
+	if count != 3 {
+		t.Errorf("Expected three migrations; found %d", count)
+	}
+
+	if !found {
+		t.Errorf("The async migration was not logged in the schema_migrations table")
 	}
 }
 
@@ -347,4 +413,11 @@ func tableExists(table string) error {
 	}
 
 	return sql.ErrNoRows
+}
+
+// Skip a migration by adding a record to schema_migrations.
+func skip(t *testing.T, path string) {
+	if _, err := conn.Exec("insert into schema_migrations values ($1)", path); err != nil {
+		t.Fatalf("Failed to skip %s migration: %s", path, err)
+	}
 }

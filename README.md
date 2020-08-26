@@ -12,7 +12,7 @@ up or down, based on the current "revision" of the database.
 The "test" directory is used to test the migrations, both local and remote, and
 provides a complete example of using the package.
 
-Migrations 1.2.1 is completely API-compatible with Migrations 1.0.0.  Additionally,
+Migrations 1.3.1 is completely API-compatible with Migrations 1.0.0.  Additionally,
 all the new remote migration functionality and Cobra/Viper command support 
 described below is completely optional.  It is isolated in packages so as not to 
 pull in either the Cobra, Viper, or AWS packages into your binary unless you use
@@ -20,11 +20,10 @@ them.
 
 ## Deprecation Warnings
 
-As of version 1.2, Cobra and Viper integrations are deprecated.  Obviously not
-everyone is using these packages, and it seems presumptuous to force others to
-include them.
+Version 1.2 deprecates Cobra and Viper integrations.  Obviously not everyone is 
+using these packages, and it seems presumptuous to force others to include them.
 
-The functionality will be completely removed in version 1.3.
+The functionality will be completely removed in version 1.5.
 
 ## Adding Migrations to Your Application
 
@@ -85,7 +84,24 @@ Note: *make sure to load the database driver before applying migrations!*
 
     import _ "github.com/lib/pq"
     
-## Cobra & Viper
+## Logging
+
+Migrations uses a simple `Logger` interface to expose migration information to
+the user.  By default, this goes to `stdout`.  You're welcome to implement 
+your own logger and wire migrations logging into your own log output.
+
+Here's the interface:
+
+    // Logger is a simple interface for logging in migrations.
+    type Logger interface {
+        Debugf(format string, args ...interface{})
+        Infof(format string, args ...interface{})
+    }
+ 
+Just assign your logger to `migrations.Log` before running any migration 
+functions.
+
+## Cobra & Viper (Deprecated)
 
 The migrations package includes sample commands that can be used as a model for 
 how to wire up your own application.  You may also use them directly and quickly 
@@ -147,6 +163,13 @@ ideally each migration carries out the simplest, smallest unit of work that
 makes for a useful database, e.g. create a database table and indexes; make
 a modification to a table; or create a stored procedure.
 
+Note the above line formats are required, including the exclamation points, or
+`migrations` won't be able to tell "up" from "down."  **As of version 1.3, the 
+`#` at the front of the up and down sections is optional, e.g. `--- !Up` is
+equivalent to `# --- !Up`, to support a valid SQL syntax and syntax 
+highlighters.**
+
+
 The "down" section should contain the code necessary to rollback the "up" 
 changes.
 
@@ -170,10 +193,11 @@ So our "create_users" migration may look something like this:
 The migrations package simply passes the raw SQL in the appropriate section 
 ("up" or "down"), to the database.  The SQL calls are wrapped in a single 
 transaction, so that if there's a problem with the SQL, the database can 
-rollback the entire migration.  
+rollback the entire migration (_see below to disable these transactions for
+special cases_).  
 
 Some databases, such as PostgreSQL, support nearly all schema modification 
-commands (CREATE TABLE, ALTER TABLE, etc.) in a transaction.  Databases like 
+commands (`CREATE TABLE`, `ALTER TABLE`, etc.) in a transaction.  Databases like 
 MySQL have some support for this.  Your mileage may vary, but if your database 
 doesn't support transactioned schema modifications, you may have to manually 
 repair your databases should a migration partially fail.  This is another
@@ -322,10 +346,10 @@ added in the future.
 To tweak how the migration is processed, include the flag at the end of the
 up or down line/comment in the migration.  For example:
 
-    # --- !Up /notx
+    # --- !Up /notx /async
     
-Make sure to put a space between the direction value, e.g. `Up`, and the flag,
-in this case, `/notx`
+Make sure to put a space between the direction value, e.g. `Up`, and each flag,
+in this case, `/notx` and `/async`.
 
 ### Flag /notx
 
@@ -335,3 +359,28 @@ migration should **not** be run in a transaction.
 This is helpful in some situations, but use it with care and keep the `/notx` 
 migrations small.  If the migration only partially completes, you may need to 
 manually clean up the database before migrations can continue.
+
+### Flag /async
+
+The `/async` flag runs the migration's SQL commands in a separate process, 
+asynchronously, using a different database connection and transaction than the 
+main `migrations` connection.  This allows long-running background tasks to run 
+outside of the transactional flow of migrations and not block.  For example, 
+`/async` is useful in PostgreSQL migrations if you need to run 
+`CREATE INDEX CONCURRENTLY`.
+
+The `/async` command requires the `/notx` flag. It is ignored if `/notx` is not
+present.
+
+However, this flag also means that **migrations will be marked as successful in 
+the `schema_migrations` table even if one or more of their SQL commands fail**.
+If your database cannot function with an `/async` migration passing this "false
+positive," you may need to reconsider using `/async`.
+
+Note:  with `/async` enabled, each SQL command (i.e. statement separated by 
+semicolons) runs in its own separate goroutine, with no guaranteed order.  If
+this is not desirable, break up your commands into separate, ordered migrations,
+and run each with `/async`.      
+
+To watch for asynchronous failures in the logs, filter for 
+`SQL command "..." failed asynchronously`, followed by the error message.

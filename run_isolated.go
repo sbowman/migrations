@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"errors"
 	"strings"
+	"sync"
 )
 
 var ErrNoCommand = errors.New("no SQL command found")
@@ -11,10 +12,24 @@ var ErrNoState = errors.New("no SQL parser state")
 
 // RunIsolated breaks apart a SQL migration into separate commands and runs each in isolation.
 // Used to run migrations outside of a transaction.
-func RunIsolated(db *sql.DB, sql string) error {
-	cmds, err := ParseSQL(sql)
+func RunIsolated(wg *sync.WaitGroup, db *sql.DB, doc string, mods []string) error {
+	cmds, err := ParseSQL(doc)
 	if err != nil {
 		return err
+	}
+
+	if HasMod(mods, "/async") {
+		for _, cmd := range cmds {
+			wg.Add(1)
+
+			go func(db *sql.DB, cmd string) {
+				defer wg.Done()
+				if _, err := db.Exec(cmd); err != nil {
+					Log.Infof(`SQL command "%s" failed asynchronously: %s`, cmd, err)
+				}
+			}(db, cmd)
+		}
+		return nil
 	}
 
 	for _, cmd := range cmds {
