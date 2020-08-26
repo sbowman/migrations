@@ -114,7 +114,7 @@ Note: *make sure to load the database driver before applying migrations!*
 
 As of version 1.3, the `migrations` package supports asynchronous migrations
 (see the `/async` flag below).  This allows longer running migrations to run
-in the background, while allowning the main, syncrhonous migrations to complete.
+in the background, while allowning the main, synchronous migrations to complete.
 
 If you use the `Migrate` function, it will block until all asynchronous 
 migrations complete.
