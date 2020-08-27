@@ -92,34 +92,67 @@ func Create(directory string, name string) error {
 // Indicate the version to roll towards, either forwards or backwards (rollback).  By default we
 // roll forwards to the current time, i.e. run all the migrations.
 //
-// For asynchronous migrations (those flagged with `/async`). the individual SQL commands in the
-// migration are run concurrently, but the migration will not continue until all commands have
-// returned.  If you need to allow for longer-running SQL commands, use MigrateAsync.
+// With Migrate, asynchronous migrations are ignored and run as standard migrations.  To run an
+// asynchronous migration, use MigrateAsync.
 func Migrate(db *sql.DB, directory string, version int) error {
-	asyncResults, err := MigrateAsync(db, directory, version)
+	if err := CreateSchemaMigrations(db); err != nil {
+		return err
+	}
+
+	direction := Moving(db, version)
+	migrations, err := Available(directory, direction)
 	if err != nil {
 		return err
 	}
 
-	// Blocks until the asynchronous requests complete
-	for result := range asyncResults {
-		if result.Err != nil {
-			if result.Command == "" {
-				Log.Infof("Asynchronous migration %s failed: %s", result.Migration, result.Err)
-				continue
+	for _, migration := range migrations {
+		path := fmt.Sprintf("%s%c%s", directory, os.PathSeparator, migration)
+
+		tx, err := db.Begin()
+		if err != nil {
+			return err
+		}
+
+		if ShouldRun(tx, path, direction, version) {
+			SQL, _, err := ReadSQL(path, direction)
+			if err != nil {
+				return err
 			}
 
-			Log.Infof("Asynchronous migration %s failed on command %s: %s",
-				result.Migration, result.Command, result.Err)
+			Log.Infof("Running migration %s %s", path, direction)
+
+			_, err = tx.Exec(string(SQL))
+			if err != nil {
+				tx.Rollback()
+				return err
+			}
+
+			if err = Migrated(tx, path, direction); err != nil {
+				return err
+			}
+		}
+
+		if err = tx.Commit(); err != nil {
+			return err
 		}
 	}
 
 	return nil
 }
 
-// MigrateAsync is similar to Migrate, but runs the asynchronous migrations completely in the
-// background, i.e. it allows the `/async` migrations to continue running in the background.  Good
-// for long-running commands, such as `CREATE INDEX CONCURRENTLY`.
+// MigrateAsync is similar to Migrate, but runs the asynchronous migrations in the background, and
+// returns a ResultChannel to receive updates on each asychronous migration as it succeeds or
+// fails.  Asynchronous migrations are typically good for long-running SQL commands, such as
+// PostgreSQL's CREATE INDEX CONCURRENTLY.
+//
+// Because asynchronous migrations run in the background, they will always be marked as successful
+// in the database (added to the schema_migrations table), even if there is a problem.  It is up
+// to a human to manually resolve any problems with asynchronous migrations. Use with caution.
+//
+// It is typically better to use Migrate for CLI migrations and run that during development, then
+// MigrateAsync in production.  This allows you to "protect" your local development database with
+// transactions while you work on the migration, then once it's correct, run it asynchronously
+// when deployed to production.
 func MigrateAsync(db *sql.DB, directory string, version int) (ResultChannel, error) {
 	if err := CreateSchemaMigrations(db); err != nil {
 		return nil, err
@@ -342,7 +375,7 @@ type SQL string
 // Modifiers collects the modification flags passed in from the SQL "up" and "down" lines.  For
 // example:
 //
-//     # --- !Up /notx /async
+//     # --- !Up /async
 //
 // These modifications are parsed and returned with the SQL from ReadSQL.
 type Modifiers []string
@@ -350,13 +383,13 @@ type Modifiers []string
 // HasMod looks for the migration modification passed in from the SQL.  Mods should be indicated
 // like so:
 //
-//     # --- !Up /notx /async
+//     # --- !Up /async
 //     insert into sample (name) values ('abc');
 //
-//     # --- !Down /notx
+//     # --- !Down /async
 //     delete from sample where name = 'abc';
 //
-// The only modification supported currently is `/notx`, which runs the SQL outside a transaction.
+// The only modification supported currently is `/async`, which runs the SQL outside a transaction.
 func (m Modifiers) Has(value string) bool {
 	for _, mod := range m {
 		if strings.EqualFold(mod, value) {
@@ -377,7 +410,7 @@ func ReadSQL(path string, direction Direction) (SQL, Modifiers, error) {
 	sqldoc := new(bytes.Buffer)
 	parsing := false
 
-	// Collect any modifiers, e.g. /notx, from the SQL direction line
+	// Collect any modifiers, e.g. /async, from the SQL direction line
 	modifiers := make(map[string]struct{})
 
 	s := bufio.NewScanner(f)

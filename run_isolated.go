@@ -54,7 +54,7 @@ func HandleAsync(db *sql.DB, requests RequestChannel, results ResultChannel) {
 }
 
 // RunIsolated breaks apart a SQL migration into separate commands and runs each in a single
-// transaction.  Helps asynchronous migrations return addition details about failures.
+// transaction.  Helps asynchronous migrations return additional details about failures.
 func RunIsolated(db *sql.DB, req AsyncRequest) (SQL, error) {
 	commands, err := ParseSQL(req.SQL)
 	if err != nil {

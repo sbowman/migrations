@@ -116,17 +116,18 @@ As of version 1.3, the `migrations` package supports asynchronous migrations
 (see the `/async` flag below).  This allows longer running migrations to run
 in the background, while allowning the main, synchronous migrations to complete.
 
-If you use the `Migrate` function, it will block until all asynchronous 
-migrations complete.
+If you use the `Migrate` function, asynchronous migrations are ignored and run
+like normal migrations.  This is useful in development.  To run asynchronous
+migrations in the background, use `MigrateAsync`
 
-However, if you're using something like the "maintenance" pod described in the
-introduction, you may want to allow your migrations to run to completion, let
-your other pods depending on those synchronous migrations know the database is
-ready, while letting the longer running asynchronous migrations more time to
+For example, if you're using something like the "maintenance" pod described in 
+the introduction, you may want to allow your migrations to run to completion, 
+let your other pods depending on those synchronous migrations know the database 
+is ready, while letting the longer running asynchronous migrations more time to
 complete in the background.  To do this, call `MigrateAsync` and handle the
 `migrations.ResultChannel` yourself.
 
-For example:
+Here's some sample code illustrating `MigrateAsync`:
 
 	asyncResults, err := migrations.MigrateAsync(dbConn, pathToMigrations, 
 	    migrateToRevision)
@@ -443,6 +444,6 @@ approach to asynchronous migrations.  But that means if something goes wrong
 in an asynchronous migration, it's your responsibility to manually resolve the
 problem.
 
-With the `/async` function there is a new `MigrateAsync` function you can use
-to better control the migrations.  See the example above for a sample of how
-to use it.
+To use the `/async` function there is a new `MigrateAsync` function.  See the 
+example above for a sample of how to use it.  If you don't call `MigrateAsync`,
+the `/async` flag is ignored and the migration run as a normal migration.
