@@ -28,7 +28,7 @@ your applications, on deployment, all wait for migrations to complete before
 accepting requests, so they are using the latest and greatest version of your 
 database.
 
-Migrations 1.3.1 is completely API-compatible with Migrations 1.0.0.  
+Migrations 1.3.4 is completely API-compatible with Migrations 1.0.0.  
 
 All the remote migration functionality and Cobra/Viper command support described 
 below is completely optional.  It is isolated in packages so as not to pull in 
