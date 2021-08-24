@@ -20,21 +20,6 @@ type Reader interface {
 type DiskReader struct {
 }
 
-// CreateDirectory creates the migrations directory on disk if it doesn't
-// already exist.
-//func (dw *DiskReadWrite) CreateDirectory(directory string) error {
-//	return os.MkdirAll(directory, 0755)
-//}
-
-// WriteMigration writes the migration file to disk.  Expects a path to the
-// migration file.
-//func (dw *DiskReadWrite) WriteMigration(path string, migration []byte) error {
-//	if err := ioutil.WriteFile(path, migration, 0644); err != nil {
-//		return err
-//	}
-//	return nil
-//}
-
 // Files reads the filenames from disk.
 func (d *DiskReader) Files(directory string) ([]string, error) {
 	files, err := ioutil.ReadDir(directory)

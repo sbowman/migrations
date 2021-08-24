@@ -1,4 +1,4 @@
-package migrations_test
+package tests_test
 
 import (
 	"database/sql"
@@ -7,9 +7,9 @@ import (
 	"strings"
 	"testing"
 
-	_ "github.com/lib/pq"
-
 	"github.com/sbowman/migrations"
+
+	_ "github.com/jackc/pgx/v4/stdlib"
 )
 
 const (
@@ -28,7 +28,7 @@ func TestMain(m *testing.M) {
 
 	migrations.Log = new(migrations.NilLogger)
 
-	conn, err = sql.Open("postgres", "postgres://postgres@localhost/migrations_test?sslmode=disable")
+	conn, err = sql.Open("pgx", "postgres://postgres@localhost/migrations_test?sslmode=disable")
 	if err != nil {
 		_, _ = fmt.Fprintf(os.Stderr, "Unable to connect to migrations_test database: %s\n", err)
 		os.Exit(1)
@@ -495,7 +495,11 @@ func TestAsyncFailure(t *testing.T) {
 
 // Shortcut to run the test migrations in the sql directory.
 func migrate(revision int) error {
-	return migrations.Migrate(conn, "./sql", revision)
+	if os.Getenv("NOTX") != "true" {
+		return migrations.Migrate(conn, "./sql", revision)
+	}
+
+	return migrations.MigrateUnsafe(conn, "./sql", revision)
 }
 
 // Clean out the database.

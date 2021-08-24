@@ -13,9 +13,6 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-
-	// PostgreSQL driver
-	_ "github.com/lib/pq"
 )
 
 // Direction is the direction to migrate
@@ -45,7 +42,7 @@ var (
 	// migration.
 	ErrNameRequired = errors.New("name required")
 
-	// Output defaults to writing to disk.
+	// IO defaults to writing to disk.
 	IO Reader
 
 	// Matches the Up/Down sections in the SQL migration file
@@ -89,7 +86,7 @@ func Create(directory string, name string) error {
 // database to the indicated version.  If the schema_migrations table does not exist, this function
 // will automatically create it.
 //
-// Indicate the version to roll towards, either forwards or backwards (rollback).  By default we
+// Indicate the version to roll towards, either forwards or backwards (rollback).  By default, we
 // roll forwards to the current time, i.e. run all the migrations.
 //
 // With Migrate, asynchronous migrations are ignored and run as standard migrations.  To run an
@@ -123,7 +120,7 @@ func Migrate(db *sql.DB, directory string, version int) error {
 
 			_, err = tx.Exec(string(SQL))
 			if err != nil {
-				tx.Rollback()
+				_ = tx.Rollback()
 				return err
 			}
 
@@ -195,7 +192,7 @@ func MigrateAsync(db *sql.DB, directory string, version int) (ResultChannel, err
 
 				_, err = tx.Exec(string(SQL))
 				if err != nil {
-					tx.Rollback()
+					_ = tx.Rollback()
 					return nil, err
 				}
 			}
@@ -300,7 +297,7 @@ func Revision(filename string) (int, error) {
 		return 0, err
 	}
 
-	return int(v), nil
+	return v, nil
 }
 
 // Filename returns just the filename from the full path.
@@ -380,7 +377,7 @@ type SQL string
 // These modifications are parsed and returned with the SQL from ReadSQL.
 type Modifiers []string
 
-// HasMod looks for the migration modification passed in from the SQL.  Mods should be indicated
+// Has looks for the migration modification passed in from the SQL.  Mods should be indicated
 // like so:
 //
 //     # --- !Up /async
@@ -457,7 +454,9 @@ func LatestMigration(db *sql.DB) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	defer rows.Close()
+	defer func() {
+		_ = rows.Close()
+	}()
 
 	for rows.Next() {
 		if err := rows.Scan(&migration); err != nil {

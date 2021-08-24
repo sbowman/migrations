@@ -28,7 +28,7 @@ your applications, on deployment, all wait for migrations to complete before
 accepting requests, so they are using the latest and greatest version of your 
 database.
 
-Migrations 1.3.4 is completely API-compatible with Migrations 1.0.0.  
+Migrations 1.4.0 is completely API-compatible with Migrations 1.0.0.  
 
 All the remote migration functionality and Cobra/Viper command support described 
 below is completely optional.  It is isolated in packages so as not to pull in 
@@ -43,6 +43,21 @@ The "cmd" directory contains some sample code describing how to setup
 `migrations` functionaltiy in your applications, using the Cobra and Viper 
 packages.  (_This package will eventually be deprecated, and the examples moved
 to proper `Example` code._)
+
+## Testing
+
+In order to remove the PostgreSQL dependency from this package, as of 1.4 test 
+cases have been moved to the `tests` directory, and are treated as a standalone
+package.  This allows us to maintain test cases, but utilize the PostgreSQL
+driver to test `migrations` against a real database server.
+
+To run these test cases:
+
+    cd tests && make
+
+The `Makefile` tears down any existing `migrations_test` database, creates a new
+`migrations_test` database, runs the tests for migrations in a transaction, 
+followed by tests for migrations outside of a transaction.
 
 ## Deprecation Warnings
 
@@ -106,10 +121,33 @@ We call this "rolling back" a migration, and it allows you to develop your
 application, make some changes, apply them, then roll them back if they don't
 work.  
 
-Note: *make sure to load the database driver before applying migrations!*
+Note: *make sure to load the database driver before applying migrations!*  For 
+example:
 
-    import _ "github.com/lib/pq"
-    
+    import _ "github.com/jackc/pgx/v4/stdlib"
+
+See `tests/migrations_test.go` for an example.
+
+### Transactionless Migrations (1.4)
+
+As of version 1.4, the `migrations` package adds support for running migrations
+outside of a transaction.  This package was originally designed to work with
+PostgreSQL, which supports DDL commands inside of a transaction.  But this 
+feature is not available in all databases, and running statements inside a 
+transaction on some of these databases can cause errors.  As of version 1.4, 
+you may run migrations in transactionless mode.  
+
+Transactionless migrations are obviously less safe than running migrations in
+a transaction.  If you have migrations with multiple SQL commands, and a
+command fails in the middle of the migration, your database will be in a 
+partially migrated state, and you'll have to clean up the migration manually to 
+continue with the migration.  Because of this, it's recommended if you use
+`migrations` like this, each individual SQL migration file should contain the 
+minimum number of SQL commands as is reasonable, so if a migration fails, 
+it's easier to resolve.
+
+To run transactionless migrations, call `MigrateUnsafe` instead of `Migrate`.
+
 ### Asynchronous Migrations (1.3)
 
 As of version 1.3, the `migrations` package supports asynchronous migrations

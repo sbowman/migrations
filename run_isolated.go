@@ -15,12 +15,12 @@ var ErrNoState = errors.New("no SQL parser state")
 // synchronous migrations to complete.
 type RequestChannel chan AsyncRequest
 
-// ResponseChannel is the channel on which asynchronous migrations return their results (did they
+// ResultChannel is the channel on which asynchronous migrations return their results (did they
 // succeed or fail).  The MigrateAsync function returns this channel, so your application can
 // listen for the background migrations to complete before reporting completion.
 type ResultChannel chan AsyncResult
 
-// AsyncRequest is submitted to the background asynchronous migrations processor.
+// AsyncRequest is submitted to the background asynchronous migration processor.
 type AsyncRequest struct {
 	Migration string    // Full path to the migration
 	Direction Direction // The direction to run
@@ -69,7 +69,7 @@ func RunIsolated(db *sql.DB, req AsyncRequest) (SQL, error) {
 	for _, SQL := range commands {
 		_, err = tx.Exec(string(SQL))
 		if err != nil {
-			tx.Rollback()
+			_ = tx.Rollback()
 			return SQL, err
 		}
 	}

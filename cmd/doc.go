@@ -1,4 +1,4 @@
-// The cmd package provides some github.com/spf13/cobra commands that may
+// Package cmd provides some github.com/spf13/cobra commands that may
 // be shared and used in components using the migrations package.
 //
 // For example, simply add the commands to your root command:

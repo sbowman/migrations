@@ -42,9 +42,9 @@ func (log *DefaultLogger) Infof(format string, args ...interface{}) {
 type NilLogger struct{}
 
 // Debugf outputs nothing.
-func (log *NilLogger) Debugf(format string, args ...interface{}) {
+func (log *NilLogger) Debugf(string, ...interface{}) {
 }
 
 // Infof outputs nothing.
-func (log *NilLogger) Infof(format string, args ...interface{}) {
+func (log *NilLogger) Infof(string, ...interface{}) {
 }

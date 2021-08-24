@@ -1,4 +1,4 @@
-// The cmd package for remote migrations provides some github.com/spf13/cobra
+// Package cmd for remote migrations provides some github.com/spf13/cobra
 // commands that may be shared and used in components using the migrations
 // remote package.
 //

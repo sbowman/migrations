@@ -1,4 +1,4 @@
-// Remote package allows for migrations to be run from a remote source, such as
+// Package remote allows for migrations to be run from a remote source, such as
 // S3.
 //
 // To configure migrations to work with S3, use the migrations package like
