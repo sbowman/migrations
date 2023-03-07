@@ -10,8 +10,4 @@ setup_db:
 migrations: $(GO_FILES)
 	@go test
 
-notx: export NOTX = true
-notx: $(GO_FILES)
-	@go test
-
-all: setup_db migrations notx
+all: setup_db migrations
