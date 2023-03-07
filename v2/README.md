@@ -33,6 +33,16 @@ your applications, on deployment, all wait for migrations to complete before
 accepting requests, so they are using the latest and greatest version of your
 database.
 
+## TODO
+
+* Clean up test cases
+* Update docs:
+    * migrations.applied and migrations.rollback vs schema_migrations
+    * how embedded rollbacks work
+    * removal of deprecated and unused features
+    * switch to postgresql only
+    * cli
+
 ## Development and Testing Notes
 
 In order to remove the PostgreSQL dependency from this package, test cases exist

@@ -4,43 +4,21 @@ import "database/sql"
 
 // UpgradeMigrations upgrades your application from migrations/v1 to migrations/v2.  Basically
 // copies the migrations from the schema_migrations table to the migrations.applied table.
-func UpgradeMigrations(db *sql.DB) error {
-	tx, err := db.Begin()
-	if err != nil {
-		return err
-	}
-
-	if err := CreateMigrationsSchema(tx); err != nil {
-		_ = tx.Rollback()
-		return err
-	}
-
-	if err := CreateMigrationsApplied(tx); err != nil {
-		_ = tx.Rollback()
-		return err
-	}
-
-	if err := CreateMigrationsRollbacks(tx); err != nil {
-		_ = tx.Rollback()
-		return err
-	}
-
+func UpgradeMigrations(tx *sql.Tx) error {
 	if MissingSchemaMigrations(tx) {
-		return tx.Commit()
+		return nil
 	}
 
 	if _, err := tx.Exec("insert into migrations.applied(migration) " +
 		"select migration from schema_migrations on conflict migration do nothing"); err != nil {
-		_ = tx.Rollback()
 		return err
 	}
 
 	if err := dropSchemaMigrations(tx); err != nil {
-		_ = tx.Rollback()
 		return err
 	}
 
-	return tx.Commit()
+	return nils
 }
 
 // DowngradeMigrations rolls your database back from migrations/v2 to a migrations/v1-compatible

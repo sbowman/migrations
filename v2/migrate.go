@@ -14,8 +14,6 @@ import (
 	"strings"
 )
 
-// TODO: support for options in Create, Migrate, e.g. name of schema migrations table, name of rollbacks table, whether to use DB rollbacks
-
 // Direction is the direction to migrate
 type Direction string
 
@@ -456,6 +454,12 @@ func InitializeDB(db *sql.DB) error {
 	}
 
 	if err := CreateMigrationsRollbacks(tx); err != nil {
+		_ = tx.Rollback()
+		return err
+	}
+
+	// If upgrading from migrations/v1, migrate the schema_migrations table
+	if err := UpgradeMigrations(tx); err != nil {
 		_ = tx.Rollback()
 		return err
 	}

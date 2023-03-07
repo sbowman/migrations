@@ -96,6 +96,7 @@ func ApplyRollbacks(db *sql.DB, revision int) error {
 		return err
 	}
 
+	// Run the migrations in reverse order
 	sort.Sort(SortDown(migrations))
 
 	var downSQL string
@@ -111,8 +112,9 @@ func ApplyRollbacks(db *sql.DB, revision int) error {
 			return err
 		}
 
+		// Stop when we reach the desired revision
 		if migrationRevision <= revision {
-			continue
+			break
 		}
 
 		row := tx.QueryRow("select down from migrations.rollbacks where migration = $1", migration)
@@ -160,8 +162,9 @@ func ApplyRollbacks(db *sql.DB, revision int) error {
 // HandleEmbeddedRollbacks updates the rollbacks and then applies any missing and necessary
 // rollbacks to get the database to the implied versions.
 func HandleEmbeddedRollbacks(db *sql.DB, directory string, version int) error {
-	// TODO: make automated rollbacks configurable
-	// TODO: option to stop if there's no "down" SQL
+	if version == Latest {
+		version = LatestRevision(directory)
+	}
 
 	// Move any "down" migrations into the database, if they aren't already there, to bring
 	// the app up to date with the latest migrations library

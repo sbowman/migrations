@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sbowman/migrations"
+	"github.com/sbowman/migrations/v2"
 )
 
 // Check that a single query parses correctly, with and without the semicolon.
