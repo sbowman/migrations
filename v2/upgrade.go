@@ -18,7 +18,7 @@ func UpgradeMigrations(tx *sql.Tx) error {
 		return err
 	}
 
-	return nils
+	return nil
 }
 
 // DowngradeMigrations rolls your database back from migrations/v2 to a migrations/v1-compatible

@@ -70,37 +70,48 @@ func Create(directory string, name string) error {
 	return nil
 }
 
-// Migrate runs the indicated SQL migration files against the database.
+// Apply any SQL migrations to the database using the default options.
 //
-// Any files that don't have entries in the schema_migrations table will be run to bring the
-// database to the indicated version.  If the schema_migrations table does not exist, this function
-// will automatically create it.
+// Any files that don't have entries in the migrations table will be run to bring the database to
+// the indicated version.  Should the migrations in the database exceed the version indicated, the
+// rollback or "down" migrations are applied to restore the database to the previous versions.  By
+// default the database is migrated to the latest available version indicated by the SQL migration
+// files.
 //
-// Indicate the version to roll towards, either forwards or backwards (rollback).  By default, we
-// roll forwards to the current time, i.e. run all the migrations.
+// If the migrations table does not exist, this function automatically creates it.
+func Apply(db *sql.DB) error {
+	return DefaultOptions().Apply(db)
+}
+
+// Apply any SQL migrations to the database.
 //
-// With Migrate, asynchronous migrations are ignored and run as standard migrations.  To run an
-// asynchronous migration, use MigrateAsync.
-func Migrate(db *sql.DB, directory string, version int) error {
+// Any files that don't have entries in the migrations table will be run to bring the database to
+// the indicated version.  Should the migrations in the database exceed the version indicated, the
+// rollback or "down" migrations are applied to restore the database to the previous versions.  By
+// default the database is migrated to the latest available version indicated by the SQL migration
+// files.
+//
+// If the migrations table does not exist, this function automatically creates it.
+func (options Options) Apply(db *sql.DB) error {
 	if err := InitializeDB(db); err != nil {
 		return err
 	}
 
-	direction := Moving(db, version)
-	migrations, err := Available(directory, direction)
+	direction := Moving(db, options.Revision)
+	migrations, err := Available(options.Directory, direction)
 	if err != nil {
 		return err
 	}
 
 	for _, migration := range migrations {
-		path := fmt.Sprintf("%s%c%s", directory, os.PathSeparator, migration)
+		path := fmt.Sprintf("%s%c%s", options.Directory, os.PathSeparator, migration)
 
 		tx, err := db.Begin()
 		if err != nil {
 			return err
 		}
 
-		if ShouldRun(tx, path, direction, version) {
+		if ShouldRun(tx, path, direction, options.Revision) {
 			SQL, _, err := ReadSQL(path, direction)
 			if err != nil {
 				return err
@@ -124,7 +135,7 @@ func Migrate(db *sql.DB, directory string, version int) error {
 		}
 	}
 
-	return HandleEmbeddedRollbacks(db, directory, version)
+	return HandleEmbeddedRollbacks(db, options.Directory, options.Revision)
 }
 
 // Rollback a number of migrations.  If steps is less than 2, rolls back the last migration.

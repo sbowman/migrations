@@ -264,7 +264,7 @@ func TestTransactions(t *testing.T) {
 
 // Shortcut to run the test migrations in the sql directory.
 func migrate(revision int) error {
-	return migrations.Migrate(conn, "./sql", revision)
+	return migrations.WithRevision(revision).Apply(conn)
 }
 
 // Clean out the database.

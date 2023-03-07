@@ -48,16 +48,12 @@ func runCmd() *cobra.Command {
 		Run: func(cmd *cobra.Command, args []string) {
 			uri, err := cmd.PersistentFlags().GetString(URI)
 			if err != nil {
-				_, _ = fmt.Fprintf(os.Stderr, "A --%s setting is required\n", URI)
-				return
+				migrations.Log.Infof("A --%s setting is required!", URI)
+				os.Exit(1)
 			}
 
 			directory, _ := cmd.PersistentFlags().GetString(Migrations)
-
-			revision, err := cmd.Flags().GetInt(Revision)
-			if err != nil {
-				revision = migrations.Latest
-			}
+			revision, _ := cmd.Flags().GetInt(Revision)
 
 			if revision >= 0 {
 				migrations.Log.Infof("Migrating %s to revision %d", uri, revision)
@@ -65,30 +61,25 @@ func runCmd() *cobra.Command {
 				migrations.Log.Infof("Migrating %s to the latest revision", uri)
 			}
 
-			if err := runMigrations(uri, directory, revision); err != nil {
-				migrations.Log.Infof("Failed to migrate: %s", err)
+			conn, err := sql.Open("pgx", uri)
+			if err != nil {
+				migrations.Log.Infof("Failed to connect to database %s: %s", uri, err)
+				os.Exit(1)
 			}
+
+			migrations.Log.Infof("Running migrations in %s...", directory)
+			if err := migrations.WithDirectory(directory).WithRevision(revision).Apply(conn); err != nil {
+				migrations.Log.Infof("Failed to migrate: %s", err)
+				os.Exit(1)
+			}
+
+			migrations.Log.Infof("Migrations successfuly applied")
 		},
 	}
 
 	cmd.Flags().Int(Revision, migrations.Latest, "migrate to this revision; defaults to latest")
 
 	return cmd
-}
-
-func runMigrations(uri, directory string, revision int) error {
-	conn, err := sql.Open("pgx", uri)
-	if err != nil {
-		return err
-	}
-
-	migrations.Log.Infof("Running migrations in %s...", directory)
-	if err := migrations.Migrate(conn, directory, revision); err != nil {
-		migrations.Log.Infof(err.Error())
-		os.Exit(1)
-	}
-
-	return nil
 }
 
 func main() {
