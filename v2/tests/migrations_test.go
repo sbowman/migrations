@@ -17,8 +17,8 @@ const (
 	TableExists = `
 select exists 
     (select from information_schema.tables 
-            where table_schema = 'public' and 
-                  table_name = $1)`
+            where table_schema = $1 and 
+                  table_name = $2)`
 )
 
 var conn *sql.DB
@@ -84,8 +84,12 @@ func TestUp(t *testing.T) {
 		t.Fatalf("Unable to run migration: %s", err)
 	}
 
-	if err := tableExists("schema_migrations"); err != nil {
-		t.Fatal("The schema_migrations table wasn't created")
+	if err := tableExists("migrations.applied"); err != nil {
+		t.Fatal("The migrations.applied table wasn't created")
+	}
+
+	if err := tableExists("migrations.rollbacks"); err != nil {
+		t.Fatal("The migrations.rollbacks wasn't created")
 	}
 
 	if err := tableExists("samples"); err != nil {
@@ -114,6 +118,36 @@ func TestUp(t *testing.T) {
 
 	if name == "" {
 		t.Error("Name not found")
+	}
+
+	// Check that rollbacks are loaded in the database
+	rows, err = conn.Query("select migration, down from migrations.rollbacks")
+	if err != nil {
+		t.Fatalf("Failed to query for rollback DDL: %s", err)
+	}
+
+	var found int
+
+	var migration, down string
+	for rows.Next() {
+		found++
+
+		if err := rows.Scan(&migration, &down); err != nil {
+			t.Fatalf("Failed to get applied migration from the database: %s", err)
+		}
+
+		SQL, _, err := migrations.ReadSQL(migration, migrations.Down)
+		if err != nil {
+			t.Fatalf("Unable to read SQL file %s: %s", migration, err)
+		}
+
+		if SQL != migrations.SQL(down) {
+			t.Errorf("Expected down migration %s to equal %s", SQL, migration)
+		}
+	}
+
+	if found == 0 {
+		t.Error("Didn't find any rollbacks")
 	}
 }
 
@@ -269,8 +303,12 @@ func migrate(revision int) error {
 
 // Clean out the database.
 func clean(t *testing.T) {
-	if _, err := conn.Exec("delete from schema_migrations"); err != nil {
-		t.Fatalf("Unable to clear the schema_migrations table: %s", err)
+	if _, err := conn.Exec("delete from migrations.applied"); err != nil {
+		t.Fatalf("Unable to clear the migrations.applied table: %s", err)
+	}
+
+	if _, err := conn.Exec("delete from migrations.rollbacks"); err != nil {
+		t.Fatalf("Unable to clear the migrations.rollbacks table: %s", err)
 	}
 
 	rows, err := conn.Query("select table_name from information_schema.tables where table_schema='public'")
@@ -297,7 +335,18 @@ func clean(t *testing.T) {
 
 // Check if the table exists.  Returns nil if the table exists.
 func tableExists(table string) error {
-	rows, err := conn.Query(TableExists, table)
+	parts := strings.Split(table, ".")
+
+	var schema string
+	if len(parts) == 1 {
+		schema = "public"
+		table = parts[0]
+	} else {
+		schema = parts[0]
+		table = parts[1]
+	}
+
+	rows, err := conn.Query(TableExists, schema, table)
 	if err != nil {
 		return err
 	}
@@ -314,11 +363,4 @@ func tableExists(table string) error {
 	}
 
 	return sql.ErrNoRows
-}
-
-// Skip a migration by adding a record to schema_migrations.
-func skip(t *testing.T, path string) {
-	if _, err := conn.Exec("insert into schema_migrations values ($1)", path); err != nil {
-		t.Fatalf("Failed to skip %s migration: %s", path, err)
-	}
 }

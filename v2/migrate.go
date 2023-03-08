@@ -92,6 +92,8 @@ func Apply(db *sql.DB) error {
 // files.
 //
 // If the migrations table does not exist, this function automatically creates it.
+//
+// May return an ErrStopped if rolling back migrations and the Down portion has a /stop modifier.
 func (options Options) Apply(db *sql.DB) error {
 	if err := InitializeDB(db); err != nil {
 		return err
@@ -112,9 +114,14 @@ func (options Options) Apply(db *sql.DB) error {
 		}
 
 		if ShouldRun(tx, path, direction, options.Revision) {
-			SQL, _, err := ReadSQL(path, direction)
+			SQL, mods, err := ReadSQL(path, direction)
 			if err != nil {
 				return err
+			}
+
+			if direction == Down && mods.Has("/stop") {
+				Log.Infof("Interrupting migrations due to /stop indicator in %s %s", path, direction)
+				return ErrStopped
 			}
 
 			Log.Infof("Running migration %s %s", path, direction)
@@ -300,7 +307,7 @@ type SQL string
 // Modifiers collects the modification flags passed in from the SQL "up" and "down" lines.  For
 // example:
 //
-//	# --- !Up /async
+//	# --- !Down /stop
 //
 // These modifications are parsed and returned with the SQL from ReadSQL.
 type Modifiers []string
@@ -308,13 +315,14 @@ type Modifiers []string
 // Has looks for the migration modification passed in from the SQL.  Mods should be indicated
 // like so:
 //
-//	# --- !Up /async
+//	# --- !Up
 //	insert into sample (name) values ('abc');
 //
-//	# --- !Down /async
+//	# --- !Down /stop
 //	delete from sample where name = 'abc';
 //
-// The only modification supported currently is `/async`, which runs the SQL outside a transaction.
+// The only modification supported currently is `/norollback`, which warns when a down migration
+// can't be rolled back programmatically (must restore from backup).
 func (m Modifiers) Has(value string) bool {
 	for _, mod := range m {
 		if strings.EqualFold(mod, value) {
@@ -378,7 +386,7 @@ func ReadSQL(path string, direction Direction) (SQL, Modifiers, error) {
 func LatestMigration(db *sql.DB) (string, error) {
 	var latest, migration string
 
-	rows, err := db.Query("select migration from schema_migrations")
+	rows, err := db.Query("select migration from migrations.applied")
 	if err != nil {
 		return "", err
 	}
@@ -404,7 +412,7 @@ func LatestMigration(db *sql.DB) (string, error) {
 
 // Applied returns the list of migrations that have already been applied to this database.
 func Applied(db *sql.DB) ([]string, error) {
-	rows, err := db.Query("select migration from schema_migrations")
+	rows, err := db.Query("select migration from migrations.applied")
 	if err != nil {
 		return nil, err
 	}
@@ -427,21 +435,21 @@ func Applied(db *sql.DB) ([]string, error) {
 }
 
 // IsMigrated checks the migration has been applied to the database, i.e. is it
-// in the schema_migrations table?
+// in the migrations.applied table?
 func IsMigrated(tx *sql.Tx, migration string) bool {
-	row := tx.QueryRow("select migration from schema_migrations where migration = $1 limit 1 for update", Filename(migration))
+	row := tx.QueryRow("select migration from migrations.applied where migration = $1 limit 1 for update", Filename(migration))
 	return row.Scan() != sql.ErrNoRows
 }
 
-// Migrated adds or removes the migration record from schema_migrations.
+// Migrated adds or removes the migration record from migrations.applied.
 func Migrated(tx *sql.Tx, path string, direction Direction) error {
 	var err error
 	filename := Filename(path)
 
 	if direction == Down {
-		_, err = tx.Exec("delete from schema_migrations where migration = $1", filename)
+		_, err = tx.Exec("delete from migrations.applied where migration = $1", filename)
 	} else {
-		_, err = tx.Exec("insert into schema_migrations (migration) values ($1)", filename)
+		_, err = tx.Exec("insert into migrations.applied (migration) values ($1)", filename)
 	}
 
 	return err
@@ -469,7 +477,7 @@ func InitializeDB(db *sql.DB) error {
 		return err
 	}
 
-	// If upgrading from migrations/v1, migrate the schema_migrations table
+	// If upgrading from migrations/v1, migrate the migrations.applied table
 	if err := UpgradeMigrations(tx); err != nil {
 		_ = tx.Rollback()
 		return err
@@ -492,15 +500,14 @@ func CreateMigrationsSchema(tx *sql.Tx) error {
 
 // MissingMigrationsSchema returns true if there's no "migrations" schema in the database.
 func MissingMigrationsSchema(tx *sql.Tx) bool {
-	row := tx.QueryRow("SELECT exists(select schema_name FROM information_schema.schemata " +
-		"WHERE schema_name = 'migrations')")
+	row := tx.QueryRow("SELECT not exists(select schema_name FROM information_schema.schemata WHERE schema_name = 'migrations')")
 
 	var result bool
 	if err := row.Scan(&result); err != nil {
 		return true
 	}
 
-	return false
+	return result
 }
 
 // CreateMigrationsApplied creates the migrations.applied table in the database if it doesn't

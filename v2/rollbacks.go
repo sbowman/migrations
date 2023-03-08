@@ -2,8 +2,12 @@ package migrations
 
 import (
 	"database/sql"
+	"errors"
 	"sort"
 )
+
+// ErrStopped returned if the migration couldn't rollback due to a /stop modifier
+var ErrStopped = errors.New("stopped rollback due to /stop modifier")
 
 // CreateMigrationsRollbacks creates the migrations.rollbacks table in the database if it doesn't already
 // exist.
@@ -79,8 +83,15 @@ func UpdateRollback(tx *sql.Tx, path string) error {
 		return nil
 	}
 
-	downSQL, _, err := ReadSQL(path, Down)
+	downSQL, mods, err := ReadSQL(path, Down)
 	if err != nil {
+		return err
+	}
+
+	// Record that the rollback should stop here, as indicated by the annotation on the Down
+	// indicator in the SQL
+	if mods.Has("/stop") {
+		_, err = tx.Exec("insert into migrations.rollbacks (migration, down) values ($1, '/stop')", filename)
 		return err
 	}
 
@@ -124,7 +135,11 @@ func ApplyRollbacks(db *sql.DB, revision int) error {
 
 		}
 
-		if downSQL != "" {
+		if downSQL == "/stop" {
+			Log.Infof("Stopping rollback per migration %s", migration)
+			return ErrStopped
+
+		} else if downSQL != "" {
 			Log.Infof("Rolling back migration %s", migration)
 
 			_, err = tx.Exec(downSQL)
@@ -132,6 +147,7 @@ func ApplyRollbacks(db *sql.DB, revision int) error {
 				_ = tx.Rollback()
 				return err
 			}
+
 		} else {
 			Log.Infof("Skipped rolling back migration %s; no down SQL found", migration)
 		}

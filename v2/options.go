@@ -1,5 +1,11 @@
 package migrations
 
+import "os"
+
+// EnvMigrations is the environment variable that can be used to point to the directory of SQL
+// migrations.
+const EnvMigrations = "MIGRATIONS"
+
 type Options struct {
 	// Revision is the revision to forcibly move to.  Defaults to the latest revision as
 	// indicated by the available SQL files (which could be a rollback if the applied
@@ -10,11 +16,18 @@ type Options struct {
 	Directory string
 }
 
-// DefaultOptions returns the defaults for the migrations package.
+// DefaultOptions returns the defaults for the migrations package.  Revision defaults to the
+// latest revision, and the directory defaults to what's defined in the MIGRATIONS environment
+// variable, or "./sql" if the environment variable was not defined..
 func DefaultOptions() Options {
+	directory := os.Getenv(EnvMigrations)
+	if directory == "" {
+		directory = "./sql"
+	}
+
 	return Options{
 		Revision:  Latest,
-		Directory: "./sql",
+		Directory: directory,
 	}
 }
 

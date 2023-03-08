@@ -39,8 +39,11 @@ database.
 * Update docs:
     * migrations.applied and migrations.rollback vs schema_migrations
     * how embedded rollbacks work
-    * removal of deprecated and unused features
+    * removal of deprecated and unused features: s3, async, notx
+    * addition of options
     * switch to postgresql only
+    * MIGRATIONS env variable
+    * /stop annotation
     * cli
 
 ## Development and Testing Notes
