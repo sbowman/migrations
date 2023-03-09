@@ -7,5 +7,5 @@ create table roles
 
 create unique index idx_role_name on roles (name);
 
---- !Down
+--- !Down /stop
 drop table roles;

@@ -66,7 +66,7 @@ func Create(directory string, name string) error {
 	fullname := fmt.Sprintf("%d-%s.sql", r, trimmed)
 	path := fmt.Sprintf("%s%c%s", directory, os.PathSeparator, fullname)
 
-	if err := os.WriteFile(path, []byte("# --- !Up\n\n# --- !Down\n\n"), 0644); err != nil {
+	if err := os.WriteFile(path, []byte("--- !Up\n\n--- !Down\n\n"), 0644); err != nil {
 		return err
 	}
 
@@ -125,6 +125,7 @@ func (options Options) Apply(db *sql.DB) error {
 
 			if direction == Down && mods.Has("/stop") {
 				Log.Infof("Interrupting migrations due to /stop indicator in %s %s", path, direction)
+				_ = tx.Rollback()
 				return ErrStopped
 			}
 

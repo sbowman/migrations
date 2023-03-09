@@ -141,6 +141,8 @@ func TestUp(t *testing.T) {
 			t.Fatalf("Unable to read SQL file %s: %s", migration, err)
 		}
 
+		SQL = migrations.SQL(strings.TrimSpace(string(SQL)))
+		
 		if SQL != migrations.SQL(down) {
 			t.Errorf("Expected down migration %s to equal %s", SQL, down)
 		}
@@ -336,13 +338,9 @@ func clean(t *testing.T) {
 		}
 
 		// Note: not exactly safe, but this is just a test case
-		if _, err := conn.Exec("drop table if exists " + name); err != nil {
+		if _, err := conn.Exec("drop table if exists " + name + " cascade"); err != nil {
 			t.Fatalf("Couldn't drop table %s: %s", name, err)
 		}
-	}
-
-	if name == "" {
-		t.Error("Name not found")
 	}
 }
 

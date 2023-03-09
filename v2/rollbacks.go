@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"errors"
 	"sort"
+	"strings"
 )
 
 // ErrStopped returned if the migration couldn't rollback due to a /stop modifier
@@ -56,6 +57,8 @@ func UpdateRollback(tx *sql.Tx, path string) error {
 	if err != nil {
 		return err
 	}
+
+	downSQL = SQL(strings.TrimSpace(string(downSQL)))
 
 	// Record that the rollback should stop here, as indicated by the annotation on the Down
 	// indicator in the SQL
