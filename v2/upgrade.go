@@ -2,18 +2,25 @@ package migrations
 
 import "database/sql"
 
-// UpgradeMigrations upgrades your application from migrations/v1 to migrations/v2.  Basically
-// copies the migrations from the schema_migrations table to the migrations.applied table.
-func UpgradeMigrations(tx *sql.Tx) error {
+// Upgrade from migrations/v1 to migrations/v2.  If the database is new or has already been upgraded
+// (the schema_migrations table is missing), does nothing.
+func Upgrade(tx *sql.Tx, directory string) error {
 	if MissingSchemaMigrations(tx) {
 		return nil
 	}
 
-	if _, err := tx.Exec("insert into migrations.applied(migration) " +
-		"select migration from schema_migrations on conflict migration do nothing"); err != nil {
+	// Migrate from schema_migrations to the migrations.applied table
+	if err := CopyMigrations(tx); err != nil {
+		_ = tx.Rollback()
 		return err
 	}
 
+	// Add the rollbacks migrations.rollbacks table
+	if err := UpdateRollbacks(tx, directory); err != nil {
+		return err
+	}
+
+	// Remove the remainder of migrations/v1
 	if err := dropSchemaMigrations(tx); err != nil {
 		return err
 	}
@@ -21,10 +28,10 @@ func UpgradeMigrations(tx *sql.Tx) error {
 	return nil
 }
 
-// DowngradeMigrations rolls your database back from migrations/v2 to a migrations/v1-compatible
+// Downgrade rolls your database back from migrations/v2 to a migrations/v1-compatible
 // database, or specifically, recreate schema_migrations and copy migrations.applied into the
-// schema_migrations table.
-func DowngradeMigrations(db *sql.DB) error {
+// schema_migrations table and drop the "migrations" schema.
+func Downgrade(db *sql.DB) error {
 	tx, err := db.Begin()
 	if err != nil {
 		return err
@@ -82,6 +89,17 @@ func MissingSchemaMigrations(tx *sql.Tx) bool {
 	return result
 }
 
+// CopyMigrations copies the migrations from the schema_migrations table to the migrations.applied
+// table.
+func CopyMigrations(tx *sql.Tx) error {
+	if _, err := tx.Exec("insert into migrations.applied(migration) " +
+		"select migration from schema_migrations on conflict migration do nothing"); err != nil {
+		return err
+	}
+
+	return nil
+}
+
 // dropSchemaMigrations deletes the migrations/v1 table.  Should only be called from
 // UpgradeMigrations.
 func dropSchemaMigrations(tx *sql.Tx) error {
@@ -105,6 +123,27 @@ func dropMigrationsSchema(tx *sql.Tx) error {
 
 	if _, err := tx.Exec("drop schema migrations"); err != nil {
 		return err
+	}
+
+	return nil
+}
+
+// UpdateRollbacks copies all the "down" parts of the migrations into the migrations.rollbacks table for
+// any migrations missing from that table.  Helps migrate older applications to use the newer
+// in-database rollback functionality.
+func UpdateRollbacks(tx *sql.Tx, directory string) error {
+	migrations, err := Available(directory, Up)
+	if err != nil {
+		return err
+	}
+
+	for _, migration := range migrations {
+		if err := UpdateRollback(tx, migration); err != nil {
+			Log.Infof("Unable to record rollback in the database: %s", err)
+
+			_ = tx.Rollback()
+			return err
+		}
 	}
 
 	return nil

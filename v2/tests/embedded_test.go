@@ -1,59 +1,85 @@
 package tests_test
 
-import "testing"
+import (
+	"fmt"
+	"testing"
+
+	"github.com/sbowman/migrations/v2"
+)
 
 func TestEmbeddedRollback(t *testing.T) {
 	defer clean(t)
 
-	if err := migrate(2); err != nil {
-		t.Fatalf("Unable to run migration to revision 2: %s", err)
+	// TODO: need to test a SQL only rollback!
+
+	if err := migrations.WithDirectory("./sql_embedded").WithRevision(migrations.Latest).Apply(conn); err != nil {
+		t.Fatalf("Unable to run migration to latest revision: %s", err)
 	}
 
-	if _, err := conn.Exec("insert into samples (name, email) values ('Bob', 'bob@home.com')"); err != nil {
-		t.Errorf("Expected to be able to insert email address after revision 2: %s", err)
-	}
+	// Add another migration that doesn't exist as a file
+	revision := migrations.LatestRevision(migrations.DefaultOptions().Directory)
 
-	rows, err := conn.Query("select email from samples where name = 'Bob'")
+	tx, err := conn.Begin()
 	if err != nil {
-		t.Errorf("Didn't find expected record in database: %s", err)
+		t.Fatalf("Can't create a transaction! %s", err)
 	}
 
-	var email string
-	for rows.Next() {
-		if err := rows.Scan(&email); err != nil {
-			t.Errorf("Failed to get email from database: %s", err)
+	migration := fmt.Sprintf("%d-create-user-roles.sql", revision)
+
+	if _, err := tx.Exec("insert into migrations.applied values ($1)", migration); err != nil {
+		t.Fatalf("Can't insert extra migration: %s", err)
+	}
+
+	if _, err := tx.Exec("insert into migrations.rollbacks (migration, down) values ($1, $2)", migration, "drop table user_roles;"); err != nil {
+		t.Fatalf("Can't insert extra rollback: %s", err)
+	}
+
+	if _, err := tx.Exec("create table user_roles (user_id integer not null references users (id), role_id integer not null references roles (id), primary key (user_id, role_id))"); err != nil {
+		t.Fatalf("Can't create table for rollback: %s", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		t.Fatalf("Failed to commit changes: %s", err)
+	}
+
+	if err := tableExists("user_roles"); err != nil {
+		t.Fatalf("Failed to create user_roles table: %s", err)
+	}
+
+	// Migrating to "latest" should take things back one level, because our above migration
+	// doesn't exist as a SQL file
+	if err := migrations.WithDirectory("./sql_embedded").WithRevision(migrations.Latest).Apply(conn); err != nil {
+		t.Fatalf("Unable to run migration to latest revision: %s", err)
+	}
+
+	if err := tableExists("user_roles"); err == nil {
+		t.Errorf("Expected user_roles table to be gone")
+	}
+
+	// Is the rollback in the database gone?
+	row := conn.QueryRow("select not exists(select migration from migrations.rollbacks where migration = $1)", migration)
+	if row == nil {
+		t.Errorf("Unable to query for rollback: %s", err)
+	} else {
+		var found bool
+		if err := row.Scan(&found); err != nil {
+			t.Errorf("Unable to query for rollback: %s", err)
+		} else if found {
+			t.Errorf("Failed to delete the rollback migration for %s", migration)
 		}
+	}
 
-		if email != "bob@home.com" {
-			t.Errorf("Expected email bob@home.com for Bob, got %s", email)
+	// Is the migration in the database gone?
+	row = conn.QueryRow("select not exists(select migration from migrations.applied where migration = $1)", migration)
+	if row == nil {
+		t.Errorf("Unable to query for applied migration: %s", err)
+	} else {
+		var found bool
+		if err := row.Scan(&found); err != nil {
+			t.Errorf("Unable to query for applied migration: %s", err)
+		} else if found {
+			t.Errorf("Failed to delete the applied migration for %s", migration)
 		}
-	}
-
-	if email == "" {
-		t.Error("Email not found")
-	}
-
-	// Rollback
-	if err := migrate(1); err != nil {
-		t.Fatalf("Unable to run migration to revision 1: %s", err)
-	}
-
-	if _, err := conn.Exec("insert into samples (name, email) values ('Alice', 'alice@home.com')"); err == nil {
-		t.Error("Expected inserting an email address to fail")
-	}
-
-	_, err = conn.Query("select email from samples where name = 'Bob'")
-	if err == nil {
-		t.Error("Expected an error, as the email column shouldn't exist")
-	}
-
-	rows, err = conn.Query("select name from samples where name = 'Alice'")
-	if err != nil {
-		t.Errorf("Unable to query for samples: %s", err)
-	}
-
-	for rows.Next() {
-		t.Errorf("Did not expect results from the query")
 	}
 }
 

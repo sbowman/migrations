@@ -37,38 +37,7 @@ func MissingMigrationsRollbacks(tx *sql.Tx) bool {
 	return result
 }
 
-// UpdateRollbacks copies all the "down" parts of the migrations into the migrations.rollbacks table for
-// any migrations missing from that table.  Helps migrate older applications to use the newer
-// in-database rollback functionality.
-func UpdateRollbacks(db *sql.DB, directory string) error {
-	migrations, err := Available(directory, Up)
-	if err != nil {
-		return err
-	}
-
-	tx, err := db.Begin()
-	if err != nil {
-		return err
-	}
-
-	for _, migration := range migrations {
-		if err := UpdateRollback(tx, migration); err != nil {
-			Log.Infof("Unable to record rollback in the database: %s", err)
-
-			_ = tx.Rollback()
-			return err
-		}
-	}
-
-	if err = tx.Commit(); err != nil {
-		return err
-	}
-
-	return nil
-}
-
-// UpdateRollback adds the migration's "down" SQL to the rollbacks table.  Used by the
-// UpdateRollbacks function.
+// UpdateRollback adds the migration's "down" SQL to the rollbacks table.
 func UpdateRollback(tx *sql.Tx, path string) error {
 	var err error
 	filename := Filename(path)
@@ -110,7 +79,6 @@ func ApplyRollbacks(db *sql.DB, revision int) error {
 	// Run the migrations in reverse order
 	sort.Sort(SortDown(migrations))
 
-	var downSQL string
 	for _, migration := range migrations {
 		tx, err := db.Begin()
 		if err != nil {
@@ -128,11 +96,12 @@ func ApplyRollbacks(db *sql.DB, revision int) error {
 			break
 		}
 
+		var downSQL string
 		row := tx.QueryRow("select down from migrations.rollbacks where migration = $1", migration)
 		if err := row.Scan(&downSQL); err == sql.ErrNoRows {
-			return err
+			continue
 		} else if err != nil {
-
+			return err
 		}
 
 		if downSQL == "/stop" {
@@ -147,7 +116,6 @@ func ApplyRollbacks(db *sql.DB, revision int) error {
 				_ = tx.Rollback()
 				return err
 			}
-
 		} else {
 			Log.Infof("Skipped rolling back migration %s; no down SQL found", migration)
 		}
@@ -180,12 +148,6 @@ func ApplyRollbacks(db *sql.DB, revision int) error {
 func HandleEmbeddedRollbacks(db *sql.DB, directory string, version int) error {
 	if version == Latest {
 		version = LatestRevision(directory)
-	}
-
-	// Move any "down" migrations into the database, if they aren't already there, to bring
-	// the app up to date with the latest migrations library
-	if err := UpdateRollbacks(db, directory); err != nil {
-		return err
 	}
 
 	// Apply the db-based rollbacks as needed

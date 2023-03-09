@@ -6,7 +6,6 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"regexp"
 	"sort"
@@ -43,6 +42,11 @@ var (
 	dirRe = regexp.MustCompile("^#?\\s*-{3}\\s*!(.*)\\s*(?:.*)?$")
 )
 
+type Queryable interface {
+	Query(stmt string, args ...any) (*sql.Rows, error)
+	QueryRow(query string, args ...any) *sql.Row
+}
+
 func init() {
 	IO = new(DiskReader)
 }
@@ -62,7 +66,7 @@ func Create(directory string, name string) error {
 	fullname := fmt.Sprintf("%d-%s.sql", r, trimmed)
 	path := fmt.Sprintf("%s%c%s", directory, os.PathSeparator, fullname)
 
-	if err := ioutil.WriteFile(path, []byte("# --- !Up\n\n# --- !Down\n\n"), 0644); err != nil {
+	if err := os.WriteFile(path, []byte("# --- !Up\n\n# --- !Down\n\n"), 0644); err != nil {
 		return err
 	}
 
@@ -95,7 +99,7 @@ func Apply(db *sql.DB) error {
 //
 // May return an ErrStopped if rolling back migrations and the Down portion has a /stop modifier.
 func (options Options) Apply(db *sql.DB) error {
-	if err := InitializeDB(db); err != nil {
+	if err := InitializeDB(db, options.Directory); err != nil {
 		return err
 	}
 
@@ -381,12 +385,13 @@ func ReadSQL(path string, direction Direction) (SQL, Modifiers, error) {
 	return SQL(sqldoc.String()), mods, nil
 }
 
-// LatestMigration returns the name of the latest migration run against the
-// database.
-func LatestMigration(db *sql.DB) (string, error) {
+// LatestMigration returns the name of the latest migration run against the database.
+func LatestMigration(conn Queryable) (string, error) {
 	var latest, migration string
 
-	rows, err := db.Query("select migration from migrations.applied")
+	// PostgreSQL may not order the migrations by revision, so we need to compute which is
+	// latest
+	rows, err := conn.Query("select migration from migrations.applied")
 	if err != nil {
 		return "", err
 	}
@@ -411,8 +416,8 @@ func LatestMigration(db *sql.DB) (string, error) {
 }
 
 // Applied returns the list of migrations that have already been applied to this database.
-func Applied(db *sql.DB) ([]string, error) {
-	rows, err := db.Query("select migration from migrations.applied")
+func Applied(conn Queryable) ([]string, error) {
+	rows, err := conn.Query("select migration from migrations.applied")
 	if err != nil {
 		return nil, err
 	}
@@ -443,20 +448,31 @@ func IsMigrated(tx *sql.Tx, migration string) bool {
 
 // Migrated adds or removes the migration record from migrations.applied.
 func Migrated(tx *sql.Tx, path string, direction Direction) error {
-	var err error
 	filename := Filename(path)
 
 	if direction == Down {
-		_, err = tx.Exec("delete from migrations.applied where migration = $1", filename)
+		if _, err := tx.Exec("delete from migrations.applied where migration = $1", filename); err != nil {
+			return err
+		}
+
+		if _, err := tx.Exec("delete from migrations.rollbacks where migration = $1", filename); err != nil {
+			return err
+		}
 	} else {
-		_, err = tx.Exec("insert into migrations.applied (migration) values ($1)", filename)
+		if _, err := tx.Exec("insert into migrations.applied (migration) values ($1)", filename); err != nil {
+			return err
+		}
+
+		if err := UpdateRollback(tx, path); err != nil {
+			return err
+		}
 	}
 
-	return err
+	return nil
 }
 
 // InitializeDB prepares the tables in the database required to manage migrations.
-func InitializeDB(db *sql.DB) error {
+func InitializeDB(db *sql.DB, directory string) error {
 	tx, err := db.Begin()
 	if err != nil {
 		return err
@@ -477,9 +493,8 @@ func InitializeDB(db *sql.DB) error {
 		return err
 	}
 
-	// If upgrading from migrations/v1, migrate the migrations.applied table
-	if err := UpgradeMigrations(tx); err != nil {
-		_ = tx.Rollback()
+	// This won't do anything if the database is already upgraded from migrations/v1
+	if err := Upgrade(tx, directory); err != nil {
 		return err
 	}
 

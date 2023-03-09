@@ -136,13 +136,13 @@ func TestUp(t *testing.T) {
 			t.Fatalf("Failed to get applied migration from the database: %s", err)
 		}
 
-		SQL, _, err := migrations.ReadSQL(migration, migrations.Down)
+		SQL, _, err := migrations.ReadSQL("./sql/"+migration, migrations.Down)
 		if err != nil {
 			t.Fatalf("Unable to read SQL file %s: %s", migration, err)
 		}
 
 		if SQL != migrations.SQL(down) {
-			t.Errorf("Expected down migration %s to equal %s", SQL, migration)
+			t.Errorf("Expected down migration %s to equal %s", SQL, down)
 		}
 	}
 
@@ -227,6 +227,19 @@ func TestDown(t *testing.T) {
 	// Rollback
 	if err := migrate(1); err != nil {
 		t.Fatalf("Unable to run migration to revision 1: %s", err)
+	}
+
+	// Is the rollback in the database gone?
+	row := conn.QueryRow("select exists(select migration from migrations.rollbacks where migration = '2-add-email-to-sample.sql')")
+	if row == nil {
+		t.Errorf("Unable to query for rollback: %s", err)
+	} else {
+		var found bool
+		if err := row.Scan(&found); err != nil {
+			t.Errorf("Unable to query for rollback: %s", err)
+		} else if found {
+			t.Errorf("Failed to delete the rollback migration for 2-add-email-to-sample.sql")
+		}
 	}
 
 	if _, err := conn.Exec("insert into samples (name, email) values ('Alice', 'alice@home.com')"); err == nil {
