@@ -1,7 +1,5 @@
 # Go SQL Migrations v2.0.0
 
-## TODO
-
 [![PkgGoDev](https://pkg.go.dev/badge/github.com/sbowman/migrations/v2)](https://pkg.go.dev/github.com/sbowman/migrations/v2)
 
 The `migrations` package provides an agile approach to managing database schema revisions for your
@@ -51,7 +49,7 @@ It may also be run as a standalone tool, either from the command line or a Docke
 
 To install the command-line tool, run:
 
-    $ go install github.com/sbowman/migrations/v2/migrate
+    $ go install github.com/sbowman/migrate@v1.0.0
 
 This will install the `migrate` binary into your `$GOPATH/bin` directory. If that directory is on
 your PATH, you should be able to run migrations from anywhere.
