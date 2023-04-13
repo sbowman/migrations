@@ -142,7 +142,7 @@ func TestUp(t *testing.T) {
 		}
 
 		SQL = migrations.SQL(strings.TrimSpace(string(SQL)))
-		
+
 		if SQL != migrations.SQL(down) {
 			t.Errorf("Expected down migration %s to equal %s", SQL, down)
 		}
@@ -374,4 +374,16 @@ func tableExists(table string) error {
 	}
 
 	return sql.ErrNoRows
+}
+
+// Check if the migration exists.  Returns nil if the migration exists.
+func migrationApplied(migration string) error {
+	row := conn.QueryRow("select migration from migrations.applied where migration = $1", migration)
+
+	var existing string
+	if err := row.Scan(&existing); err != nil {
+		return err
+	}
+
+	return nil
 }

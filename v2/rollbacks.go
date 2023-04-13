@@ -3,6 +3,7 @@ package migrations
 import (
 	"database/sql"
 	"errors"
+	"path"
 	"sort"
 	"strings"
 )
@@ -63,12 +64,35 @@ func UpdateRollback(tx *sql.Tx, path string) error {
 	// Record that the rollback should stop here, as indicated by the annotation on the Down
 	// indicator in the SQL
 	if mods.Has("/stop") {
+		Log.Infof("Storing /stop down migration for %s", path)
 		_, err = tx.Exec("insert into migrations.rollbacks (migration, down) values ($1, '/stop')", filename)
 		return err
 	}
 
+	Log.Infof("Storing down migration for %s, %s", path, downSQL)
 	_, err = tx.Exec("insert into migrations.rollbacks (migration, down) values ($1, $2)", filename, downSQL)
 	return err
+}
+
+// UpdateRollbacks copies all the "down" parts of the migrations into the migrations.rollbacks table for
+// any migrations missing from that table.  Helps migrate older applications to use the newer
+// in-database rollback functionality.
+func UpdateRollbacks(tx *sql.Tx, directory string) error {
+	migrations, err := Available(directory, Up)
+	if err != nil {
+		return err
+	}
+
+	for _, migration := range migrations {
+		if err := UpdateRollback(tx, path.Join(directory, migration)); err != nil {
+			Log.Infof("Unable to record rollback in the database: %s", err)
+
+			_ = tx.Rollback()
+			return err
+		}
+	}
+
+	return nil
 }
 
 // ApplyRollbacks collects any migrations stored in the database that are higher than the desired

@@ -2,7 +2,6 @@ package migrations
 
 import (
 	"io"
-	"io/ioutil"
 	"os"
 )
 
@@ -22,7 +21,7 @@ type DiskReader struct {
 
 // Files reads the filenames from disk.
 func (d *DiskReader) Files(directory string) ([]string, error) {
-	files, err := ioutil.ReadDir(directory)
+	files, err := os.ReadDir(directory)
 	if err != nil {
 		return nil, err
 	}

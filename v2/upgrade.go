@@ -1,6 +1,8 @@
 package migrations
 
-import "database/sql"
+import (
+	"database/sql"
+)
 
 // Upgrade from migrations/v1 to migrations/v2.  If the database is new or has already been upgraded
 // (the schema_migrations table is missing), does nothing.
@@ -93,7 +95,7 @@ func MissingSchemaMigrations(tx *sql.Tx) bool {
 // table.
 func CopyMigrations(tx *sql.Tx) error {
 	if _, err := tx.Exec("insert into migrations.applied(migration) " +
-		"select migration from schema_migrations on conflict migration do nothing"); err != nil {
+		"select migration from schema_migrations on conflict (migration) do nothing"); err != nil {
 		return err
 	}
 
@@ -123,27 +125,6 @@ func dropMigrationsSchema(tx *sql.Tx) error {
 
 	if _, err := tx.Exec("drop schema migrations"); err != nil {
 		return err
-	}
-
-	return nil
-}
-
-// UpdateRollbacks copies all the "down" parts of the migrations into the migrations.rollbacks table for
-// any migrations missing from that table.  Helps migrate older applications to use the newer
-// in-database rollback functionality.
-func UpdateRollbacks(tx *sql.Tx, directory string) error {
-	migrations, err := Available(directory, Up)
-	if err != nil {
-		return err
-	}
-
-	for _, migration := range migrations {
-		if err := UpdateRollback(tx, migration); err != nil {
-			Log.Infof("Unable to record rollback in the database: %s", err)
-
-			_ = tx.Rollback()
-			return err
-		}
 	}
 
 	return nil

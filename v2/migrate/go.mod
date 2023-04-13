@@ -1,4 +1,4 @@
-module github.com/sbowman/migrations/v2/cli
+module github.com/sbowman/migrations/v2/migrate
 
 go 1.19
 

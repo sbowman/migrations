@@ -1,4 +1,4 @@
-PROJECT = migrations
+PROJECT = migrate
 VERSION ?= 2.0.0
 
 REPO = github.com/sbowman/migrations/v2/cli
@@ -16,8 +16,11 @@ default: $(PROJECT)
 
 # domain/types/private_key_cipher.go security/key_manager_cipher.go
 $(PROJECT): $(GO_FILES)
-	@go build -ldflags=$(GO_BUILD_FLAGS) -o ./$(PROJECT)
+	@go build -ldflags=$(GO_BUILD_FLAGS)
+
+install:
+	@go install -ldflags=$(GO_BUILD_FLAGS)
 
 .PHONY: clean
-clean::
+clean:
 	@rm $(PROJECT)

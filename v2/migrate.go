@@ -129,7 +129,7 @@ func (options Options) Apply(db *sql.DB) error {
 				return ErrStopped
 			}
 
-			Log.Infof("Running migration %s %s", path, direction)
+			Log.Infof("Applying migration %s %s", path, direction)
 
 			_, err = tx.Exec(string(SQL))
 			if err != nil {
@@ -145,6 +145,10 @@ func (options Options) Apply(db *sql.DB) error {
 		if err = tx.Commit(); err != nil {
 			return err
 		}
+	}
+
+	if !options.EmbeddedRollbacks {
+		return nil
 	}
 
 	return HandleEmbeddedRollbacks(db, options.Directory, options.Revision)
@@ -178,7 +182,9 @@ func Rollback(db *sql.DB, directory string, steps int) error {
 // Down, returns the migrations in reverse order (migrating down).
 func Available(directory string, direction Direction) ([]string, error) {
 	files, err := IO.Files(directory)
-	if err != nil {
+	if os.IsNotExist(err) {
+		return nil, nil
+	} else if err != nil {
 		return nil, fmt.Errorf("invalid migrations directory, %s: %s", directory, err.Error())
 	}
 

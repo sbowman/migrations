@@ -14,6 +14,9 @@ type Options struct {
 
 	// Directory is the directory containing the SQL files.  Defaults to the "./sql" directory.
 	Directory string
+
+	// EmbeddedRollbacks enables embedded rollbacks.  Defaults to true.
+	EmbeddedRollbacks bool
 }
 
 // DefaultOptions returns the defaults for the migrations package.  Revision defaults to the
@@ -25,9 +28,15 @@ func DefaultOptions() Options {
 		directory = "./sql"
 	}
 
+	envDir := os.Getenv("MIGRATIONS")
+	if envDir != "" {
+		directory = envDir
+	}
+
 	return Options{
-		Revision:  Latest,
-		Directory: directory,
+		Revision:          Latest,
+		Directory:         directory,
+		EmbeddedRollbacks: true,
 	}
 }
 
@@ -44,6 +53,12 @@ func WithDirectory(path string) Options {
 	return DefaultOptions().WithDirectory(path)
 }
 
+// DisableEmbeddedRollbacks disables the embedded rollbacks functionality.  Rollbacks must be
+// triggered manually, using WithRevision.
+func DisableEmbeddedRollbacks() Options {
+	return DefaultOptions().DisableEmbeddedRollbacks()
+}
+
 // WithRevision manually indicates the revision to migrate the database to.  By default, the
 // migrations to get the database to the revision indicated by the latest SQL migraiton file is
 // used.
@@ -56,5 +71,12 @@ func (options Options) WithRevision(revision int) Options {
 // the database schema.  Defaults to the "./sql" directory.
 func (options Options) WithDirectory(path string) Options {
 	options.Directory = path
+	return options
+}
+
+// DisableEmbeddedRollbacks disables the embedded rollbacks functionality.  Rollbacks must be
+// triggered manually, using WithRevision.
+func (options Options) DisableEmbeddedRollbacks() Options {
+	options.EmbeddedRollbacks = false
 	return options
 }
