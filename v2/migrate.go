@@ -120,6 +120,7 @@ func (options Options) Apply(db *sql.DB) error {
 		if ShouldRun(tx, path, direction, options.Revision) {
 			SQL, mods, err := ReadSQL(path, direction)
 			if err != nil {
+				_ = tx.Rollback()
 				return err
 			}
 
@@ -138,6 +139,7 @@ func (options Options) Apply(db *sql.DB) error {
 			}
 
 			if err = Migrated(tx, path, direction); err != nil {
+				_ = tx.Rollback()
 				return err
 			}
 		}

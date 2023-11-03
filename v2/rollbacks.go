@@ -120,18 +120,21 @@ func ApplyRollbacks(db *sql.DB, revision int) error {
 
 		// Stop when we reach the desired revision
 		if migrationRevision <= revision {
+			_ = tx.Rollback()
 			break
 		}
 
 		var downSQL string
 		row := tx.QueryRow("select down from migrations.rollbacks where migration = $1", migration)
-		if err := row.Scan(&downSQL); err == sql.ErrNoRows {
+		if err := row.Scan(&downSQL); errors.Is(err, sql.ErrNoRows) {
 			continue
 		} else if err != nil {
+			_ = tx.Rollback()
 			return err
 		}
 
 		if downSQL == "/stop" {
+			_ = tx.Rollback()
 			Log.Infof("Stopping rollback per migration %s", migration)
 			return ErrStopped
 
