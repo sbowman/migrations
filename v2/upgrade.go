@@ -48,8 +48,8 @@ func Downgrade(db *sql.DB) error {
 		return tx.Commit()
 	}
 
-	if _, err := tx.Exec("insert into schema_migrations(migration) " +
-		"select migration from migrations.applied on conflict migration do nothing"); err != nil {
+	if _, err := tx.Exec("insert into schema_migrations (migration) " +
+		"(select migration from migrations.applied) on conflict (migration) do nothing"); err != nil {
 		_ = tx.Rollback()
 		return err
 	}
