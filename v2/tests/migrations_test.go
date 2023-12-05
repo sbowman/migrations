@@ -318,12 +318,16 @@ func migrate(revision int) error {
 
 // Clean out the database.
 func clean(t *testing.T) {
-	if _, err := conn.Exec("delete from migrations.applied"); err != nil {
-		t.Fatalf("Unable to clear the migrations.applied table: %s", err)
+	if err := tableExists("migrations.applied"); err == nil {
+		if _, err := conn.Exec("delete from migrations.applied"); err != nil {
+			t.Fatalf("Unable to clear the migrations.applied table: %s", err)
+		}
 	}
 
-	if _, err := conn.Exec("delete from migrations.rollbacks"); err != nil {
-		t.Fatalf("Unable to clear the migrations.rollbacks table: %s", err)
+	if err := tableExists("migrations.rollbacks"); err == nil {
+		if _, err := conn.Exec("delete from migrations.rollbacks"); err != nil {
+			t.Fatalf("Unable to clear the migrations.rollbacks table: %s", err)
+		}
 	}
 
 	rows, err := conn.Query("select table_name from information_schema.tables where table_schema='public'")
